@@ -36,6 +36,22 @@ if systemctl --user is-active --quiet "$unit"; then
   exit 1
 fi
 
+# Detect conflicting existing servers before creating any files.
+# The lobby uses two adjacent TCP ports (main HTTP/2 and friends TLS).
+python3 - "$bind" "$port" <<'PY'
+import socket
+import sys
+
+host, port = sys.argv[1], int(sys.argv[2])
+for address in {host, "127.0.0.1"}:
+    for target in (port, port + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test:
+                test.bind((address, target))
+        except OSError as exc:
+            raise SystemExit(f"Port {address}:{target} unavailable: {exc}. Choose an isolated port.") from exc
+PY
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 api="https://api.github.com/repos/ItsJustLiliana/MKWOM/releases/tags/$tag"

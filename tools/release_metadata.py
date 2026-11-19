@@ -7,7 +7,9 @@ import shutil
 
 root = Path(__file__).resolve().parents[1]
 sha = os.environ["SOURCE_SHA"]
-channel = "beta" if os.environ["SOURCE_BRANCH"] == "beta" else "pre-beta"
+if os.environ["SOURCE_BRANCH"] not in ("main", "pre-beta"):
+    raise ValueError("build candidates only from main/pre-beta; Beta and Release require manual promotion")
+channel = "pre-beta"
 tag = f"{channel}-{os.environ['RUN_ID']}-{sha[:12]}"
 shutil.copy2(root / "tools/deploy_server.py", "dist/deploy_server.py")
 for name in ("LICENSE", "NOTICE.md"):

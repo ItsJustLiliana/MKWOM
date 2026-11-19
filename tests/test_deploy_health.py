@@ -2,6 +2,9 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+pytest.importorskip("fcntl", reason="Server deployment uses Linux/POSIX file locking")
 from tools import deploy_server
 
 

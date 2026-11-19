@@ -29,6 +29,8 @@ def test_invalid_session_refuses_play(tmp_path):
 def test_verified_session_can_launch(tmp_path):
     profile = {"id": "123", "username": "driver"}
     with patch("mkwom.gui.current_user", return_value=profile) as check, \
+         patch("mkwom.gui.token", return_value="a" * 64), \
+         patch("mkwom.gui.protect_for_game"), patch("mkwom.gui.persist_online_settings"), \
          patch("mkwom.gui.update") as update, patch("mkwom.gui.launch") as launch:
         install_and_play(tmp_path, "pre-beta")
         assert check.call_count == 2

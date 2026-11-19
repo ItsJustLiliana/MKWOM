@@ -200,11 +200,13 @@ class Launcher:
                 self.save.configure(state="normal")
                 self.channels.configure(state="readonly")
                 try:
-                    self.status.set(future.result())
+                    result = future.result()
+                    self.refresh()
+                    self.status.set(result)
                 except Exception as exc:
+                    self.refresh()
                     self.status.set("Operation failed: " + str(exc))
                     messagebox.showerror("MKWOM", str(exc))
-                self.refresh()
         except queue.Empty:
             pass
         self.root.after(100, self.poll)

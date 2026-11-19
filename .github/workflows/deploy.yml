@@ -43,6 +43,25 @@ jobs:
           mkdir -p dist
           gh release download "$RELEASE_TAG" --pattern mkwom-server-linux-x64.tar.gz --pattern SHA256SUMS --dir dist
           cd dist
+          grep '  mkwom-server-linux-x64.tar.gz deploy logic from main, even for older candidate archives.
+          cp ../tools/deploy_server.py ./deploy_server.py
+          test -s ./deploy_server.py
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+      - name: Deploy over administrator tailnet
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
+          LISTEN_HOST: ${{ vars.LISTEN_HOST }}
+          LOBBY_PORT: ${{ vars.LOBBY_PORT }}
+        run: |
+          python3 tools/remote_deploy.py
+ SHA256SUMS | sha256sum --check --strict -
           # Use reviewed deploy logic from main, even for older candidate archives.
           cp ../tools/deploy_server.py ./deploy_server.py
           test -s ./deploy_server.py

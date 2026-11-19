@@ -12,6 +12,7 @@ from mkwom import cli, delta, installer, package
 @pytest.fixture(autouse=True)
 def no_process_scan(monkeypatch):
     monkeypatch.setattr(installer, "game_closed", lambda: None)
+    monkeypatch.setattr(cli, "game_closed", lambda: None)
 
 
 @pytest.fixture
@@ -208,3 +209,15 @@ def test_update_urls_cannot_point_to_other_repositories():
         cli.download("https://github.com/other/project/releases/download/v1/file", 100)
     with pytest.raises(ValueError):
         cli.download("http://github.com/ItsJustLiliana/MKWOM/releases/download/v1/file", 100)
+
+
+@pytest.mark.parametrize("name", ["setup/src/CON", "setup/src/nul.txt", "setup/src/trailing.",
+                                 "setup/src/trailing ", "setup/src/a?b.py"])
+def test_windows_device_and_alias_paths_are_rejected(name):
+    with pytest.raises(ValueError):
+        package.safe_path(name)
+
+
+def test_invalid_zlib_is_reported_as_patch_error():
+    with pytest.raises(ValueError, match="compressed"):
+        delta.decode(b"", delta.MAGIC + struct.pack("<I", 1) + b"not zlib")

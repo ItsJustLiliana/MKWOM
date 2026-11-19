@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 import uuid
 import zipfile
 
@@ -22,7 +23,15 @@ def atom(path: Path, data: bytes):
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp, path)
+    for attempt in range(6):
+        try:
+            os.replace(tmp, path)
+            break
+        except PermissionError as e:
+            if os.name != "nt" or getattr(e, "winerror", None) not in (5, 32) or attempt == 5:
+                raise
+            # Windows antivirus/indexers can briefly hold a just-written runtime/tool file.
+            time.sleep(0.05 * 2**attempt)
 
 
 def read_json(path: Path, default=None):
@@ -88,6 +97,14 @@ def game_closed():
                                       creationflags=subprocess.CREATE_NO_WINDOW)
         if b'"mkw.exe"' in out.lower():
             raise ValueError("close mkw.exe before changing the patch")
+
+
+def verify(root: Path, installed: dict):
+    for item in installed["files"]:
+        path = target(root, item["path"])
+        data = path.read_bytes() if path.exists() else None
+        if (sha(data) if data is not None else None) != item["after"]:
+            raise ValueError(f"patched file changed: {item['path']}; restore/uninstall deliberately before updating")
 
 
 def recover(root: Path):
@@ -170,6 +187,8 @@ def install(root: Path, package: Path):
         changes = {}
         output_size = 0
         all_names = set(names) | prior.keys()
+        for name in all_names:
+            target(root, name)
         base_exe = state / "original/mkw.exe" if old else root / "mkw.exe"
         if sha(base_exe.read_bytes()) != manifest["base_exe_sha256"]:
             raise ValueError("unsupported recomp build: install the official supported version first")

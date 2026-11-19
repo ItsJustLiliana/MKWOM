@@ -12,6 +12,11 @@ def safe_path(name: str) -> str:
     if (not name or "\\" in name or ":" in name or path.is_absolute()
             or any(p in ("..", ".", "") for p in name.split("/"))):
         raise ValueError("unsafe archive path")
+    reserved = {"CON", "PRN", "AUX", "NUL", *[f"COM{i}" for i in range(1, 10)],
+                *[f"LPT{i}" for i in range(1, 10)]}
+    if any(p.endswith((".", " ")) or p.split(".", 1)[0].upper() in reserved or
+           any(ord(c) < 32 or c in '<>"|?*~' for c in p) for p in path.parts):
+        raise ValueError("unsafe Windows archive path")
     return name
 
 

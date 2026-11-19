@@ -51,7 +51,10 @@ def decode(base: bytes, patch: bytes) -> bytes:
     if size > LIMIT:
         raise ValueError("delta too large")
     dec = zlib.decompressobj()
-    raw = dec.decompress(patch[12:], LIMIT + 1)
+    try:
+        raw = dec.decompress(patch[12:], LIMIT + 1)
+    except zlib.error as e:
+        raise ValueError("invalid compressed delta") from e
     if len(raw) > LIMIT or not dec.eof or dec.unused_data:
         raise ValueError("invalid or oversized compressed delta")
     stream = io.BytesIO(raw)

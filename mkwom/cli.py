@@ -9,10 +9,11 @@ import sys
 import tempfile
 import urllib.request
 from urllib.parse import urlsplit
+import zipfile
 
 from . import __version__
 from .delta import sha
-from .installer import install, uninstall, read_json, json_write
+from .installer import install, uninstall, read_json, json_write, game_closed, verify
 
 REPO = "ItsJustLiliana/MKWOM"
 CHANNELS = ("pre-beta", "beta", "release")
@@ -55,6 +56,7 @@ def ini_values(path: Path) -> dict:
 
 
 def update(game: Path, channel: str):
+    game_closed()
     release = json.loads(download(f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
     assets = [a for a in release["assets"] if a["name"] == "channel.json"]
     if len(assets) != 1:
@@ -66,6 +68,7 @@ def update(game: Path, channel: str):
         raise ValueError("a new patcher is required; download it from the repository Releases page")
     old = read_json(game / ".mkwom/installed.json", {})
     if old.get("version") == manifest["version"]:
+        verify(game, old)
         print("MKWOM is up to date.")
     else:
         blob = download(manifest["patch_url"], 256 * 1024 * 1024)
@@ -75,7 +78,6 @@ def update(game: Path, channel: str):
             package = Path(directory) / "patch.zip"
             package.write_bytes(blob)
             # Verify version before allowing the installer to touch any files.
-            import zipfile
             with zipfile.ZipFile(package) as z:
                 if json.loads(z.read("manifest.json"))["version"] != manifest["version"]:
                     raise ValueError("channel/package version mismatch")
@@ -90,8 +92,11 @@ def update(game: Path, channel: str):
 
 
 def launch(game: Path):
-    if not read_json(game / ".mkwom/installed.json"):
+    game_closed()
+    installed = read_json(game / ".mkwom/installed.json")
+    if not installed:
         raise ValueError("install the MKWOM patch first")
+    verify(game, installed)
     settings = read_json(game / ".mkwom/settings.json", {})
     ini = ini_values(game / "mkw.ini")
     data = Path(ini.get("GAME_DIR") or str(game))
@@ -150,7 +155,7 @@ def main(argv=None):
             if a.command == "update" or not a.no_update:
                 update(game, channel)
             launch(game) if a.command == "play" else None
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, zipfile.BadZipFile) as e:
         print(f"MKWOM: {e}", file=sys.stderr)
         return 1
     return 0

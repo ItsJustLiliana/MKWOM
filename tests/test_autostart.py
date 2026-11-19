@@ -13,7 +13,8 @@ def test_direct_game_start_checks_login_updates_and_launches(tmp_path):
     (game / "mkw.exe").write_bytes(b"MZtest")
     json_write(game / ".mkwom/settings.json", {"channel": "pre-beta", "endpoint": "local.example:18443"})
     with patch("mkwom.autostart.current_user", return_value={"id": "123"}), \
-         patch("mkwom.autostart.update") as update, patch("mkwom.autostart.launch") as launch:
+         patch("mkwom.autostart.update") as update, patch("mkwom.autostart.persist_online_settings"), \
+         patch("mkwom.autostart.launch") as launch:
         update_and_launch(game)
     update.assert_called_once_with(game, "pre-beta")
     launch.assert_called_once_with(game)
@@ -34,6 +35,7 @@ def test_direct_game_start_fails_before_launch_if_update_fails(tmp_path):
     (tmp_path / "mkw.exe").write_bytes(b"MZtest")
     with patch("mkwom.autostart.current_user", return_value={"id": "123"}), \
          patch("mkwom.autostart.update", side_effect=ValueError("hash mismatch")), \
+         patch("mkwom.autostart.persist_online_settings"), \
          patch("mkwom.autostart.launch") as launch:
         with pytest.raises(ValueError, match="hash mismatch"):
             update_and_launch(tmp_path)

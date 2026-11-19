@@ -156,7 +156,7 @@ class Launcher:
             for button in self.auth_buttons:
                 button.configure(state="disabled")
         self.location.bind("<FocusOut>", lambda _event: self.refresh())
-        self.channel.bind("<<ComboboxSelected>>", lambda _event: self.save_channel())
+        self.channels.bind("<<ComboboxSelected>>", lambda _event: self.save_channel())
 
     def current_folder(self) -> Path | None:
         value = self.folder.get().strip().strip('"')

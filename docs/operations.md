@@ -1,9 +1,10 @@
 # Operator setup and promotion
 
+**Current operator policy:** build-only on push; all three server updates require an explicit GitHub Actions click. See [current Arch setup and three-stage workflow](three-stage-arch.md). The older automatic-push wording below is superseded by this policy.
+
 ## First GitHub setup
 
-1. Keep ordinary development on `main` (pre-beta). Protect `beta`; merge there only when you want an automatic Beta
-   update. Alternatively use **Actions > Promote tested candidate** to promote existing candidate artifacts.
+1. Keep ordinary development on `main` and use its automatic CI builds to create pre-beta candidates; **pushes never update live servers or channel pointers**. Protect Beta/Release environments with reviewers and use explicit workflow dispatch buttons for transitions.
 2. In **Settings > Environments**, create `pre-beta`, `beta`, `release`. Require your approval for Beta/Release
    deployments where appropriate. Environment approval and workflow dispatch are the operator's gates.
 3. Keep `AUTO_DEPLOY` unset until each target is initialized, isolated and tested. Builds and downloadable client
@@ -63,15 +64,15 @@ The relay is not restarted for an unrelated lobby update and existing TURN confi
 
 ## Promote a tested build
 
+Before Beta promotion you must manually activate the exact pre-beta candidate through **Actions > Activate pre-beta on Arch (manual)**. Beta accepts only the currently active pre-beta tag. Release accepts only the currently active Beta tag. Publishing a Release also does not deploy; click **Actions > Activate published Release** afterward. A failed deployment cannot advance the client channel.
+
 1. Open **Actions > Promote tested candidate > Run workflow**.
 2. Paste the exact versioned candidate tag, for example `pre-beta-RUNID-COMMITSHA12`.
 3. Select **beta** to copy those verified artifacts unchanged, deploy the configured Beta server and update only its
    client channel. No production account files move between environments.
 4. After testing, select **release** and enter a new tag such as `v0.1.0`. This makes a **draft**, not a public stable
    update. Open **Releases**, edit its notes to record the actual game tests, then click **Publish release** when ready.
-5. The Release activation workflow deploys the configured Release server, then points its client updater at those
-   artifacts. If GitHub suppresses an event for an API-created release, run **Activate published Release** manually
-   with the published stable tag. A draft/prerelease is rejected by stable activation.
+5. **Manually run Actions > Activate published Release** with the published stable tag. This deploys the Release server, then points its client updater at that artifact. A draft/prerelease is rejected by stable activation. Publishing alone never deploys.
 
 Stable releases include versioned `MKWOM-Patch-vX.Y.Z-windows-x64.zip` and `MKWOM-Patcher-vX.Y.Z.exe` files as byte-identical copies of the tested artifacts. Generic names remain for the automatic updater. The public release version is distinct from the commit-pinned internal build ID.
 

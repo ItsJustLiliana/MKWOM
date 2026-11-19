@@ -49,33 +49,19 @@ passed to the child process. The built-in upstream updater is disabled only for 
 MKWOM owns updates to the patched runtime. Uninstall before independently upgrading the underlying recomp.
 The patcher itself requests a fresh download if its own required version changes; patch updates are automatic.
 
-## Channels and your approval
+## Three-stage manual release pipeline
 
-| Action | Result |
-|---|---|
-| Push to `main` or `pre-beta` | Test, build and publish a pre-beta candidate; update only pre-beta |
-| Push/merge to `beta` | Test/build and automatically update the configured Beta instance and client channel |
-| Actions > Promote tested candidate > Beta | Promote the exact tested candidate artifacts, deploy Beta if configured |
-| Actions > Promote tested candidate > Release | Create a **draft GitHub Release** with the tested downloads |
-| Publish that stable draft in GitHub Releases | Deploy configured Release instance, then activate the Release client channel |
+**All server and client channel activations are manual:**
 
-Nothing is promoted to Beta/Release simply because it landed on `main`. Candidate tags are versioned;
-`channel-pre-beta`, `channel-beta` and `channel-release` are small mutable updater pointers. Downloads are
-SHA-256 checked over GitHub HTTPS under this repository's control; these are not independent code signatures.
-Configure branch protection and required environment reviewers before sharing production access.
+1. Code on `main` builds and tests a new immutable **pre-beta candidate**. Nothing is deployed automatically.
+2. Click **Actions > Activate pre-beta on Arch (manual)**, select that candidate and verify the pre-beta server.
+3. When satisfied, click **Actions > Promote tested candidate > beta**. Only the **currently activated pre-beta** candidate can advance. After deployment and health checks, Beta's client channel is updated.
+4. After Beta testing, click **Promote tested candidate > release** using the **currently activated Beta** tag. This creates a **draft** stable GitHub Release; it does not deploy.
+5. Edit and publish the stable GitHub Release, then **click Actions > Activate published Release**. This is the separate manual Release deployment/activation step.
 
-For Beta testing use `update --channel beta`; use `update --channel release` to return. Switch only with the game
-closed. Channel/account isolation and schemas matter: until separate per-channel client profiles are implemented,
-use separate recomp installation folders for independent Beta and Release backends. Never reuse a live production
-account-store directory for Beta. For the exact promotion clicks, see [operations](docs/operations.md).
+Promotion copies tested binaries exactly (SHA-256 verified), never silently rebuilds or skips stages. A failed deployment leaves the prior channel unchanged. Account stores are separate and never copied across environments.
 
-## Temporary Arch Linux account-service pre-beta
-
-An **isolated** registration/login API can be installed now on the current Arch Linux server without
-altering the existing lobby, game profiles or other systemd services. Follow
-[Arch pre-beta account setup](docs/accounts.md). Its account database binds to localhost by default.
-The API **does not** yet enforce authorization in the native multiplayer server, so don't publish
-the login requirement as complete.
+**Current host:** Arch Linux. Start by bootstrapping an isolated pre-beta instance and its account API; three concurrent servers require independent networking/UDP/TURN. Later, swap the per-environment deployment target to STRATO. See [three-stage Arch setup](docs/three-stage-arch.md) and [operator instructions](docs/operations.md).
 
 ## Server and future VPS
 

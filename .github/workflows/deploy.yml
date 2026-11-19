@@ -8,15 +8,6 @@ on:
       environment:
         type: string
         required: true
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Tested release tag
-        required: true
-      environment:
-        type: choice
-        options: [pre-beta, beta, release]
-        required: true
 permissions:
   contents: read
 concurrency:
@@ -28,11 +19,23 @@ jobs:
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v7
-      - name: Deployment not yet enabled
-        if: vars.AUTO_DEPLOY != 'true'
-        run: echo 'No production changes. Configure this environment and enable AUTO_DEPLOY when its isolated server is ready.'
+      - name: Verify manual stage deployment configuration
+        env:
+          AUTO_DEPLOY: ${{ vars.AUTO_DEPLOY }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
+          LISTEN_HOST: ${{ vars.LISTEN_HOST }}
+          LOBBY_PORT: ${{ vars.LOBBY_PORT }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+        run: |
+          test "$AUTO_DEPLOY" = true || { echo "::error::Stage is not enabled. Set AUTO_DEPLOY=true only after initial host setup."; exit 1; }
+          for key in DEPLOY_ROOT DEPLOY_UNIT LISTEN_HOST LOBBY_PORT DEPLOY_HOST DEPLOY_USER TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET; do
+            test -n "${!key}" || { echo "::error::Missing required stage setting: $key"; exit 1; }
+          done
       - name: Download verified server
-        if: vars.AUTO_DEPLOY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -43,13 +46,11 @@ jobs:
           grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
           grep '  deploy_server.py$' SHA256SUMS | sha256sum --check --strict -
       - uses: tailscale/github-action@v4
-        if: vars.AUTO_DEPLOY == 'true'
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:github-actions
       - name: Deploy over administrator tailnet
-        if: vars.AUTO_DEPLOY == 'true'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}

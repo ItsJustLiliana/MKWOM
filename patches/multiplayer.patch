@@ -18814,7 +18814,7 @@ index 0000000..0dbab70
 +    return NULL;
 +}
 +
-++SrvAccount *srv_account(uint64_t code) {
++SrvAccount *srv_account(uint64_t code) {
 +    for (int i = 0; i < nacct; i++)
 +        if (accts[i]->code == code) return accts[i];
 +    return NULL;

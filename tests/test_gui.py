@@ -1,6 +1,5 @@
 """Headless tests for the Windows graphical setup's non-UI behavior."""
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 from mkwom import discovery

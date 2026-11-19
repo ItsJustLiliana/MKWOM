@@ -13502,7 +13502,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,518 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13710,6 +13710,7 @@ index 0000000..721d8cb
 +typedef struct {
 +    uint64_t code;
 +    char secret[129], build[65];
++    char game_ticket[256];
 +    char friends[LIST_MAX], removed[LIST_MAX];   // comma-separated codes
 +} Identity;
 +
@@ -13752,6 +13753,7 @@ index 0000000..721d8cb
 +        if (!strcmp(item, "code") && twelve_digits(v, strlen(v))) id->code = strtoull(v, NULL, 10);
 +        else if (!strcmp(item, "secret")) snprintf(id->secret, sizeof id->secret, "%s", v);
 +        else if (!strcmp(item, "build")) keep_build(id->build, v);
++        else if (!strcmp(item, "mkwom")) snprintf(id->game_ticket, sizeof id->game_ticket, "%s", v);
 +        else if (!strcmp(item, "friends")) snprintf(id->friends, sizeof id->friends, "%s", v);
 +        else if (!strcmp(item, "removed")) snprintf(id->removed, sizeof id->removed, "%s", v);
 +    }
@@ -13823,6 +13825,72 @@ index 0000000..721d8cb
 +    return 0;
 +}
 +
++// Cross-process MKWOM ticket: HMAC-SHA256 with an operator-provided shared key.
++// The account API, not the client, signs v1.<account-id>.<friend-code>.<expiry>.<nonce>.
++// The game server keeps the key; no plaintext account bearer enters game traffic.
++static int mkwom_ticket_valid(const char *ticket, uint64_t friend_code, char account_id[33]) {
++    account_id[0] = 0;
++    const char *secret = getenv("MKWOM_GAME_TICKET_KEY");
++    if (!secret || strlen(secret) != 64 || strspn(secret, "0123456789abcdef") != 64) return 0;
++    if (!ticket || strlen(ticket) >= 256) return 0;
++    char copy[256];
++    snprintf(copy, sizeof copy, "%s", ticket);
++    char *part[6] = {copy};
++    for (int i = 1; i < 6; i++) {
++        char *dot = strchr(part[i - 1], '.');
++        if (!dot) return 0;
++        *dot = 0;
++        part[i] = dot + 1;
++    }
++    if (strchr(part[5], '.') || strcmp(part[0], "v1") ||
++        strlen(part[1]) != 32 || strspn(part[1], "0123456789abcdef") != 32 ||
++        strlen(part[2]) != 12 || strspn(part[2], "0123456789") != 12 ||
++        strlen(part[4]) != 16 || strspn(part[4], "0123456789abcdef") != 16 ||
++        strlen(part[5]) != 64 || strspn(part[5], "0123456789abcdef") != 64) return 0;
++    char expected[16];
++    snprintf(expected, sizeof expected, "%012llu", (unsigned long long)friend_code);
++    if (strcmp(part[2], expected)) return 0;
++    if (!*part[3] || strlen(part[3]) > 12 || strspn(part[3], "0123456789") != strlen(part[3])) return 0;
++    int64_t expiry = strtoll(part[3], NULL, 10), now = (int64_t)time(NULL);
++    if (expiry <= now || expiry > now + 150) return 0;
++    uint8_t key[32], mac[32];
++    for (int i = 0; i < 32; i++) {
++        unsigned value;
++        if (sscanf(secret + 2 * i, "%2x", &value) != 1) return 0;
++        key[i] = (uint8_t)value;
++    }
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, PSA_KEY_TYPE_HMAC);
++    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_MESSAGE);
++    psa_set_key_algorithm(&attr, PSA_ALG_HMAC(PSA_ALG_SHA_256));
++    mbedtls_svc_key_id_t crypto;
++    if (psa_import_key(&attr, key, sizeof key, &crypto) != PSA_SUCCESS) return 0;
++    memset(key, 0, sizeof key);
++    const char *dot = strrchr(ticket, '.');
++    size_t n = 0;
++    psa_status_t result = psa_mac_compute(crypto, PSA_ALG_HMAC(PSA_ALG_SHA_256),
++                                          (const uint8_t *)ticket, (size_t)(dot - ticket),
++                                          mac, sizeof mac, &n);
++    psa_destroy_key(crypto);
++    if (result != PSA_SUCCESS || n != 32) return 0;
++    unsigned diff = 0;
++    for (int i = 0; i < 32; i++) {
++        char hex[3];
++        snprintf(hex, sizeof hex, "%02x", mac[i]);
++        diff |= (unsigned)(hex[0] ^ part[5][2 * i]);
++        diff |= (unsigned)(hex[1] ^ part[5][2 * i + 1]);
++    }
++    memset(mac, 0, sizeof mac);
++    if (diff) return 0;
++    snprintf(account_id, 33, "%s", part[1]);
++    return 1;
++}
++
++static int mkwom_auth_required(void) {
++    const char *key = getenv("MKWOM_GAME_TICKET_KEY"), *required = getenv("MKWOM_ACCOUNT_ENFORCE");
++    return (key && *key) || (required && !strcmp(required, "1"));
++}
++
 +// ---- Auth/IssuePrearrangedUserToken
 +static void put_now(PbOut *o, uint32_t num) {
 +    size_t m = pb_begin(o, num);
@@ -13855,6 +13923,13 @@ index 0000000..721d8cb
 +    static Identity id;   // 8 KiB: not on the stack
 +    int has = pb_find(msg, len, 3, &cred) == 1 && cred.wt == PB_LEN && pb_find(cred.data, cred.len, 1, &token) == 1 &&
 +              token.wt == PB_LEN && parse_identity((const char *)token.data, token.len, &id);
++    char bound_account[33] = "";
++    int enforce_accounts = mkwom_auth_required();
++    if (enforce_accounts &&
++        (!has || !mkwom_ticket_valid(id.game_ticket, id.code, bound_account))) {
++        srv_call_end(c, ST_PERMISSION_DENIED, "MKWOM account login required or expired");
++        return;
++    }
 +    const char *mode = srv_setting("registration", "open");
 +    char uid[24];
 +    uint64_t code = 0;
@@ -13862,6 +13937,14 @@ index 0000000..721d8cb
 +        char hash[65];
 +        srv_secret_hash(id.secret, hash);
 +        SrvAccount *a = srv_account(id.code);
++        if (enforce_accounts) {
++            SrvAccount *other = srv_account_identity(bound_account);
++            if ((other && other->code != id.code) ||
++                (a && a->account_id[0] && strcmp(a->account_id, bound_account))) {
++                srv_call_end(c, ST_PERMISSION_DENIED, "MKWOM account belongs to another friend code");
++                return;
++            }
++        }
 +        if (a && !srv_secret_equal(a->secret, hash)) {
 +            srv_call_end(c, ST_PERMISSION_DENIED, "friend code belongs to another emulator");
 +            return;
@@ -13887,6 +13970,10 @@ index 0000000..721d8cb
 +            return;
 +        }
 +        code = a->code;
++        if (enforce_accounts && !a->account_id[0]) {
++            snprintf(a->account_id, sizeof a->account_id, "%s", bound_account);
++            srv_store_save_soon();
++        }
 +        a->seen = (int64_t)time(NULL);
 +        snprintf(a->tenant, sizeof a->tenant, "%s", tenant);
 +        srv_store_save_soon();

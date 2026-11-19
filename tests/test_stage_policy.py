@@ -23,7 +23,8 @@ def test_push_build_does_not_deploy_or_move_live_channels():
 def test_prebeta_requires_manual_dispatch_then_deploy_then_activate():
     workflow = contents(".github/workflows/prebeta.yml")
     assert "workflow_dispatch:" in workflow
-    assert "environment: pre-beta" not in workflow  # reusable deploy owns stage environment
+    assert "uses: ./.github/workflows/deploy.yml" in workflow
+    assert "environment: pre-beta" in workflow
     assert "needs: [validate, deploy]" in workflow
     assert "channel: pre-beta" in workflow
 

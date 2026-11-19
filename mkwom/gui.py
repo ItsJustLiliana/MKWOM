@@ -19,17 +19,17 @@ COLORS = {
 
 def install_and_play(folder: Path, channel: str) -> str:
     """Require a freshly verified account session before launching multiplayer."""
-    ensure_online_login()
+    ensure_online_login(channel)
     update(folder, channel)
     # Validate again after downloading: revocation or expiry must fail closed.
-    ensure_online_login()
+    ensure_online_login(channel)
     launch(folder)
     return "MKWOM is up to date. Starting the game."
 
 
-def ensure_online_login() -> dict:
+def ensure_online_login(channel: str = "pre-beta") -> dict:
     """Fail closed if the account API is unavailable, token missing or revoked."""
-    profile = current_user()
+    profile = current_user(channel)
     if not profile or not profile.get("id"):
         raise AuthError("Log in to your MKWOM account to play multiplayer.")
     return profile
@@ -60,7 +60,7 @@ class Launcher:
         self.password = tk.StringVar()
         self.account_status = tk.StringVar(value="Accounts require a configured HTTPS community server.")
         try:
-            api_base()
+            api_base("pre-beta")
             self.accounts_enabled = True
             try:
                 saved_session = bool(token())
@@ -152,11 +152,20 @@ class Launcher:
         ttk.Label(account, textvariable=self.account_status, wraplength=640).grid(
             row=2, column=0, columnspan=4, sticky="w")
         self.auth_buttons = (self.login_button, self.register_button, self.logout_button)
-        if not self.accounts_enabled:
-            for button in self.auth_buttons:
-                button.configure(state="disabled")
+        self.update_auth_buttons()
         self.location.bind("<FocusOut>", lambda _event: self.refresh())
         self.channels.bind("<<ComboboxSelected>>", lambda _event: self.save_channel())
+
+    def update_auth_buttons(self):
+        try:
+            api_base(self.channel.get())
+            available = self.accounts_enabled
+        except ValueError:
+            available = False
+        for button in self.auth_buttons:
+            button.configure(state="normal" if available else "disabled")
+        if not available:
+            self.account_status.set("Accounts are not yet available for this channel.")
 
     def current_folder(self) -> Path | None:
         value = self.folder.get().strip().strip('"')
@@ -175,6 +184,7 @@ class Launcher:
             settings = read_json(folder / ".mkwom" / "settings.json", {})
             self.channel.set(settings.get("channel", "release"))
             self.endpoint.set(settings.get("endpoint", ""))
+            self.update_auth_buttons()
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
             self.primary.configure(text="Play online" if version else "Install & Play online")
@@ -213,6 +223,7 @@ class Launcher:
         if folder and not self.busy:
             try:
                 self.persist(folder)
+                self.update_auth_buttons()
                 self.status.set("Channel saved. It will be checked when you press Play.")
             except (ValueError, OSError) as exc:
                 messagebox.showerror("Invalid settings", str(exc))
@@ -255,7 +266,8 @@ class Launcher:
         username, password = self.username.get().strip(), self.password.get()
         self.password.set("")
         action = "Registering" if register else "Logging in"
-        self.start_work(lambda: self.describe_login(authenticate(username, password, register)),
+        self.start_work(lambda: self.describe_login(authenticate(username, password, register,
+                                                              channel=self.channel.get())),
                         self.current_folder() or Path.home(), action + " securely...")
 
     @staticmethod
@@ -264,7 +276,7 @@ class Launcher:
 
     def auth_logout(self):
         if self.accounts_enabled and not self.busy:
-            self.start_work(lambda: (logout(), "Logged out from MKWOM account.")[1],
+            self.start_work(lambda: (logout(channel=self.channel.get()), "Logged out from MKWOM account.")[1],
                             self.current_folder() or Path.home(), "Logging out...")
 
     def safe_update_notice(self, folder: Path, channel: str) -> str:
@@ -322,9 +334,7 @@ class Launcher:
                 self.channels.configure(state="readonly")
                 self.check_button.configure(state="normal")
                 self.update_button.configure(state="normal")
-                if self.accounts_enabled:
-                    for button in self.auth_buttons:
-                        button.configure(state="normal")
+                self.update_auth_buttons()
                 try:
                     result = future.result()
                     self.refresh()

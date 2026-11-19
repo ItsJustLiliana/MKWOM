@@ -48,20 +48,20 @@ if destination == "release":
     notes = f"""## Changes
 
 - MKWOM multiplayer patch for official **mkw-recomp v0.1.15 (Windows x64)**.
-- This build was promoted from tested candidate \`{candidate}\` without recompiling its files.
+- This build was promoted from tested candidate `{candidate}` without recompiling its files.
 - **Maintainer:** replace this section with the actual player-facing changes before publishing.
 
 ## Download and install
 
 1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
-2. Download **\`MKWOM-Patcher-{tag}.exe\`** below, and close the game.
+2. Download **`MKWOM-Patcher-{tag}.exe`** below, and close the game.
 3. Run the patcher with your game folder:
-   \`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" update --channel release\`
+   `MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" update --channel release`
 4. Launch with:
-   \`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" play\`
+   `MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" play`
 
-For an offline install, download **\`MKWOM-Patch-{tag}-windows-x64.zip\`** as well and run
-\`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" install MKWOM-Patch-{tag}-windows-x64.zip\`.
+For an offline install, download **`MKWOM-Patch-{tag}-windows-x64.zip`** as well and run
+`MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" install MKWOM-Patch-{tag}-windows-x64.zip`.
 
 The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.
 The patcher checks hashes and preserves backups, saves and config for uninstall. Run the game through MKWOM for managed updates.

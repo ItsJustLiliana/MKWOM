@@ -18450,7 +18450,7 @@ new file mode 100644
 index 0000000..0dbab70
 --- /dev/null
 +++ b/runtime/srv/srv_store.c
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,342 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships (srv_store.h). Small tables in memory, written whole to their files
 +// after a change: a new account or friendship at once (the server ends with the game, killed with it), the "last seen"
@@ -18571,8 +18571,9 @@ index 0000000..0dbab70
 +}
 +
 +static void load_account(char *line) {
-+    char *f[8];
-+    if (fields(line, f, 8) != 8) return;
++    char *f[9];
++    int cols = fields(line, f, 9);
++    if (cols != 8 && cols != 9) return;
 +    uint64_t code = strtoull(f[0], NULL, 10);
 +    if (!code || code > 999999999999ull || !hex64(f[1]) || srv_account(code)) return;
 +    SrvAccount *a = srv_account_add(code, f[1], atoi(f[2]) != 0);
@@ -18582,6 +18583,8 @@ index 0000000..0dbab70
 +    a->seen = strtoll(f[5], NULL, 10);
 +    unescape(a->tenant, sizeof a->tenant, f[6]);
 +    unescape(a->name, sizeof a->name, f[7]);
++    if (cols == 9 && strlen(f[8]) == 32 && strspn(f[8], "0123456789abcdef") == 32)
++        snprintf(a->account_id, sizeof a->account_id, "%s", f[8]);
 +}
 +
 +static void put_link(uint64_t a, uint64_t b, char kind, double since) {
@@ -18622,7 +18625,7 @@ index 0000000..0dbab70
 +        put_escaped(&t, a->tenant);
 +        tput(&t, "\t");
 +        put_escaped(&t, a->name);
-+        tput(&t, "\n");
++        tput(&t, "\t%s\n", a->account_id);
 +    }
 +    char path[1100];
 +    file_path(path, sizeof path, "accounts.tsv");
@@ -18669,7 +18672,14 @@ index 0000000..0dbab70
 +    if (dirty && now_ms - dirty_since >= 1000) save();
 +}
 +
-+SrvAccount *srv_account(uint64_t code) {
++SrvAccount *srv_account_identity(const char *account_id) {
++    if (!account_id || !*account_id) return NULL;
++    for (int i = 0; i < nacct; i++)
++        if (!strcmp(accts[i]->account_id, account_id)) return accts[i];
++    return NULL;
++}
++
+++SrvAccount *srv_account(uint64_t code) {
 +    for (int i = 0; i < nacct; i++)
 +        if (accts[i]->code == code) return accts[i];
 +    return NULL;
@@ -18788,7 +18798,7 @@ new file mode 100644
 index 0000000..9488f83
 --- /dev/null
 +++ b/runtime/srv/srv_store.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,44 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships, kept in <data> (srv_data_dir) as small text files written whole and
 +// atomically: accounts.tsv (one account per friend code), links.tsv (who added whom, who declined whom), settings.txt
@@ -18799,6 +18809,7 @@ index 0000000..9488f83
 +typedef struct {
 +    uint64_t code;      // the friend code, 12 digits, never 0
 +    char secret[65];    // SHA-256 of the player's secret, lowercase hex
++    char account_id[33]; // The stable HTTPS MKWOM account bound to this friend code
 +    char name[64];      // the in-game name last seen (UTF-8), "" before any
 +    char tenant[64];    // the game the player last signed in to
 +    int64_t created, seen;
@@ -18810,6 +18821,7 @@ index 0000000..9488f83
 +void srv_store_tick(uint64_t now_ms);
 +
 +SrvAccount *srv_account(uint64_t code);  // NULL when unknown
++SrvAccount *srv_account_identity(const char *account_id); // existing friend code for one MKWOM user
 +SrvAccount *srv_account_add(uint64_t code, const char *secret_hash, int approved);   // written at once
 +
 +// a added b (a friend request from a until b adds a back), or a declined b. Times in seconds since 1970.

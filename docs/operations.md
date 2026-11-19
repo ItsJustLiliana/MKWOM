@@ -7,7 +7,7 @@
 2. In **Settings > Environments**, create `pre-beta`, `beta`, `release`. Require your approval for Beta/Release
    deployments where appropriate. Environment approval and workflow dispatch are the operator's gates.
 3. Keep `AUTO_DEPLOY` unset until each target is initialized, isolated and tested. Builds and downloadable client
-   candidates do not require deployment credentials. An unset variable means **no remote changes**.
+   candidates do not require deployment credentials. An unset variable means **no remote changes**. A channel with `COMMUNITY_ENDPOINT` configured also refuses activation unless `AUTO_DEPLOY=true` and its deployment job succeeds. Leave the endpoint unset while using the current saved local endpoint.
 4. Watch the first Build and test pre-beta run. All client/server/patcher tests must pass before candidate publication.
    The pre-beta candidate contains `mkwom.exe`, the patch ZIP, Linux server archive, source/build identity, deployment
    script, licenses and `SHA256SUMS`.

@@ -44,9 +44,50 @@ if destination == "release":
         if hashlib.sha256(target.read_bytes()).hexdigest() != checks[source]:
             raise ValueError("versioned release asset checksum mismatch")
         release_assets.append(target)
+if destination == "release":
+    notes = f"""## Changes
+
+- MKWOM multiplayer patch for official **mkw-recomp v0.1.15 (Windows x64)**.
+- This build was promoted from tested candidate \`{candidate}\` without recompiling its files.
+- **Maintainer:** replace this section with the actual player-facing changes before publishing.
+
+## Download and install
+
+1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
+2. Download **\`MKWOM-Patcher-{tag}.exe\`** below, and close the game.
+3. Run the patcher with your game folder:
+   \`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" update --channel release\`
+4. Launch with:
+   \`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" play\`
+
+For an offline install, download **\`MKWOM-Patch-{tag}-windows-x64.zip\`** as well and run
+\`MKWOM-Patcher-{tag}.exe --game "C:\\\\Games\\\\mkw-recomp" install MKWOM-Patch-{tag}-windows-x64.zip\`.
+
+The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.
+The patcher checks hashes and preserves backups, saves and config for uninstall. Run the game through MKWOM for managed updates.
+
+## Compatibility
+
+- Supported: **official mkw-recomp v0.1.15, Windows 10/11 x64**.
+- Unknown upstream versions are rejected until independently integrated and tested.
+- A configured, reachable community server is required for multiplayer.
+
+## Tested
+
+- Automated Windows/Linux patcher tests, runtime install/uninstall round trip and Linux server protocol tests.
+- **Maintainer:** record actual two-PC connection, friend join, full race, return-to-lobby and reconnect testing here. Automated checks alone do not confirm multiplayer gameplay.
+
+## Known limitations
+
+- No native Linux client patch in this release.
+- Server VPS migration and account identity alias migration must be completed separately.
+- This is an unofficial, AI-assisted project, not affiliated with Nintendo or the upstream developers.
+"""
+else:
+    notes = (f"Beta candidate promoted unchanged from {candidate}. "
+             "Automated patch and server tests passed; two-PC multiplayer races require manual validation.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
-        "--title", "MKWOM " + tag, "--notes", f"Promoted unchanged from {candidate}. "
-        "AI-assisted. Automated patch and server checks passed; operator must validate real races before publishing."]
+        "--title", tag, "--notes", notes]
 args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
 subprocess.run(args, check=True)
 with open(os.environ["GITHUB_OUTPUT"], "a") as f:

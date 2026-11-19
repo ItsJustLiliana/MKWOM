@@ -20,9 +20,12 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - run: python -m pip install -e . pytest==8.4.2 ruff==0.14.14
+      - run: python -m pip install -e ".[test-server]" pytest==8.4.2 ruff==0.14.14
       - run: python -m pytest -q
-      - run: ruff check mkwom tools tests
+      - run: ruff check mkwom tools tests server
+      - name: Validate Arch bootstrap shell script
+        if: runner.os == 'Linux'
+        run: bash -n scripts/setup_arch_accounts_prebeta.sh
   client:
     runs-on: ubuntu-24.04
     steps:

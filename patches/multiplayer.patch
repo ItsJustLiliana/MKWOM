@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1014 @@
+@@ -0,0 +1,1015 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9748,7 +9748,8 @@ index 0000000..18cc1ef
 +    }
 +    wchar_t cmd[4 * MAX_PATH];
 +    if (swprintf(cmd, sizeof cmd / sizeof *cmd,
-+                 L"\"%ls\" --autostart --game \"%ls\"", helper, exe) <= 0) return -1;
++                 L"\"%ls\" --autostart --game \"%ls\" --parent-pid %lu",
++                 helper, exe, (unsigned long)GetCurrentProcessId()) <= 0) return -1;
 +    STARTUPINFOW start = {0};
 +    PROCESS_INFORMATION proc = {0};
 +    start.cb = sizeof start;

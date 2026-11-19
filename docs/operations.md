@@ -73,6 +73,8 @@ The relay is not restarted for an unrelated lobby update and existing TURN confi
    artifacts. If GitHub suppresses an event for an API-created release, run **Activate published Release** manually
    with the published stable tag. A draft/prerelease is rejected by stable activation.
 
+Stable releases include versioned `MKWOM-Patch-vX.Y.Z-windows-x64.zip` and `MKWOM-Patcher-vX.Y.Z.exe` files as byte-identical copies of the tested artifacts. Generic names remain for the automatic updater. The public release version is distinct from the commit-pinned internal build ID.
+
 The client patch has a content build ID; promoting it changes its channel/Release tag, not its bytes. You can
 download the patch directly from the ordinary GitHub Releases page; no separate website or GitHub Pages is needed.
 

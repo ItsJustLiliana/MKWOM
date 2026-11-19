@@ -12,10 +12,18 @@ def test_reject_unsafe_account_server(monkeypatch, url):
         accounts_client.api_base()
 
 
-def test_missing_service_is_disabled(monkeypatch):
+def test_prebeta_service_has_built_in_https_url(monkeypatch):
     monkeypatch.delenv("MKWOM_ACCOUNTS_URL", raising=False)
+    assert accounts_client.api_base("pre-beta") == "https://mkwom.liliananuzohra.com"
     with pytest.raises(accounts_client.AuthError, match="after the secure"):
-        accounts_client.api_base()
+        accounts_client.api_base("release")
+    with pytest.raises(accounts_client.AuthError, match="after the secure"):
+        accounts_client.api_base("beta")
+
+
+def test_custom_https_account_url_override(monkeypatch):
+    monkeypatch.setenv("MKWOM_ACCOUNTS_URL", "https://accounts.example.com")
+    assert accounts_client.api_base("pre-beta") == "https://accounts.example.com"
 
 
 def test_tokens_stored_in_system_keyring(monkeypatch):
@@ -28,12 +36,12 @@ def test_tokens_stored_in_system_keyring(monkeypatch):
     token = "a" * 64
     seen = []
 
-    def fake_call(path, body=None, token=None):
-        seen.append((path, token))
+    def fake_call(path, body=None, token=None, channel="pre-beta"):
+        seen.append((path, token, channel))
         return {"access_token": "a" * 64} if path == "/login" else {"id": "1", "username": "tester"}
 
     monkeypatch.setattr(accounts_client, "call", fake_call)
     result = accounts_client.authenticate("tester", "long-password-123")
     assert result["username"] == "tester"
     assert accounts_client.token() == token
-    assert seen == [("/login", None), ("/me", token)]
+    assert seen == [("/login", None, "pre-beta"), ("/me", token, "pre-beta")]

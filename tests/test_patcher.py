@@ -196,6 +196,7 @@ def test_launcher_sets_managed_environment_without_editing_ini(folders, monkeypa
     before = (game / "mkw.ini").read_bytes()
     calls = []
     monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr("mkwom.accounts_client.current_user", lambda: {"id": "verified-test-account"})
     cli.launch(game)
     env = calls[0][1]["env"]
     assert env["MKW_ONLINE_SERVER"] == "private.example:18443"

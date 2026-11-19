@@ -3,7 +3,7 @@ name = "mkwom"
 version = "0.1.0"
 description = "Version-checked MKWOM multiplayer patch installer and release tooling"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["keyring>=25,<27"]
 
 [project.optional-dependencies]
 server = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "argon2-cffi>=23,<26"]

@@ -6,7 +6,8 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .cli import CHANNELS, endpoint, launch, update
+from .cli import CHANNELS, endpoint, launch, update, update_status
+from .accounts_client import AuthError, api_base, authenticate, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
 
@@ -17,9 +18,21 @@ COLORS = {
 
 
 def install_and_play(folder: Path, channel: str) -> str:
+    """Require a freshly verified account session before launching multiplayer."""
+    ensure_online_login()
     update(folder, channel)
+    # Validate again after downloading: revocation or expiry must fail closed.
+    ensure_online_login()
     launch(folder)
     return "MKWOM is up to date. Starting the game."
+
+
+def ensure_online_login() -> dict:
+    """Fail closed if the account API is unavailable, token missing or revoked."""
+    profile = current_user()
+    if not profile or not profile.get("id"):
+        raise AuthError("Log in to your MKWOM account to play multiplayer.")
+    return profile
 
 
 def installed_version(folder: Path) -> str | None:
@@ -30,8 +43,8 @@ class Launcher:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("MKWOM | Multiplayer")
-        self.root.geometry("680x505")
-        self.root.minsize(590, 450)
+        self.root.geometry("730x650")
+        self.root.minsize(660, 600)
         self.root.configure(background=COLORS["bg"])
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.pool = ThreadPoolExecutor(max_workers=1)
@@ -43,9 +56,28 @@ class Launcher:
         self.status = tk.StringVar(value="Choose your game folder to get started.")
         self.details = tk.StringVar(value="")
         self.bar = None
+        self.username = tk.StringVar()
+        self.password = tk.StringVar()
+        self.account_status = tk.StringVar(value="Accounts require a configured HTTPS community server.")
+        try:
+            api_base()
+            self.accounts_enabled = True
+            try:
+                saved_session = bool(token())
+            except Exception:
+                saved_session = False
+                self.accounts_enabled = False
+                self.account_status.set("Secure Windows credential storage is unavailable.")
+            if self.accounts_enabled:
+                self.account_status.set(
+                    "Saved account session found (not yet verified)." if saved_session else
+                    "Account pre-beta: registration is available; game login enforcement is pending.")
+        except ValueError:
+            self.accounts_enabled = False
         self.make_ui()
         self.refresh()
         self.root.after(100, self.poll)
+        self.root.after(350, self.check_updates)
 
     def make_ui(self):
         outer = tk.Frame(self.root, bg=COLORS["bg"], padx=28, pady=24)
@@ -73,6 +105,12 @@ class Launcher:
         self.primary.pack(side="left", fill="x", expand=True, ipady=8)
         self.uninstall = ttk.Button(action, text="Uninstall patch", command=self.remove)
         self.uninstall.pack(side="left", padx=(12, 0), ipady=8)
+        updates = tk.Frame(outer, bg=COLORS["bg"])
+        updates.pack(fill="x", pady=(0, 6))
+        self.check_button = ttk.Button(updates, text="Check for updates", command=self.check_updates)
+        self.check_button.pack(side="left")
+        self.update_button = ttk.Button(updates, text="Update multiplayer", command=self.apply_update)
+        self.update_button.pack(side="left", padx=(12, 0))
         self.bar = ttk.Progressbar(outer, mode="indeterminate")
         self.bar.pack(fill="x", pady=(8, 10))
         tk.Label(outer, textvariable=self.status, fg=COLORS["text"], bg=COLORS["bg"],
@@ -91,6 +129,32 @@ class Launcher:
         line.columnconfigure(1, weight=1)
         self.save = ttk.Button(line, text="Save server", command=self.save_server)
         self.save.grid(row=1, column=2, padx=(8, 0), pady=(12, 0))
+        account_box = ttk.LabelFrame(outer, text="MKWOM Online Account (pre-beta)")
+        account_box.pack(fill="x", pady=(10, 0))
+        account = tk.Frame(account_box, padx=12, pady=8)
+        account.pack(fill="x")
+        ttk.Label(account, text="Username").grid(row=0, column=0, sticky="w")
+        self.username_entry = ttk.Entry(account, textvariable=self.username, width=18)
+        self.username_entry.grid(row=0, column=1, padx=(8, 12), sticky="ew")
+        ttk.Label(account, text="Password").grid(row=0, column=2, sticky="w")
+        self.password_entry = ttk.Entry(account, textvariable=self.password, show="*", width=18)
+        self.password_entry.grid(row=0, column=3, padx=(8, 0), sticky="ew")
+        account.columnconfigure(1, weight=1)
+        account.columnconfigure(3, weight=1)
+        account_buttons = tk.Frame(account, pady=8)
+        account_buttons.grid(row=1, column=0, columnspan=4, sticky="w")
+        self.login_button = ttk.Button(account_buttons, text="Log in", command=lambda: self.auth_action(False))
+        self.login_button.pack(side="left")
+        self.register_button = ttk.Button(account_buttons, text="Register", command=lambda: self.auth_action(True))
+        self.register_button.pack(side="left", padx=(8, 0))
+        self.logout_button = ttk.Button(account_buttons, text="Log out", command=self.auth_logout)
+        self.logout_button.pack(side="left", padx=(8, 0))
+        ttk.Label(account, textvariable=self.account_status, wraplength=640).grid(
+            row=2, column=0, columnspan=4, sticky="w")
+        self.auth_buttons = (self.login_button, self.register_button, self.logout_button)
+        if not self.accounts_enabled:
+            for button in self.auth_buttons:
+                button.configure(state="disabled")
         self.location.bind("<FocusOut>", lambda _event: self.refresh())
         self.channel.bind("<<ComboboxSelected>>", lambda _event: self.save_channel())
 
@@ -113,9 +177,9 @@ class Launcher:
             self.endpoint.set(settings.get("endpoint", ""))
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
-            self.primary.configure(text="Play" if version else "Install & Play")
+            self.primary.configure(text="Play online" if version else "Install & Play online")
             self.uninstall.configure(state="normal" if version else "disabled")
-            self.status.set("Ready.")
+            self.status.set("Log in to MKWOM to play multiplayer." if not self.accounts_enabled else "Ready.")
         except (OSError, ValueError, KeyError) as exc:
             self.status.set(str(exc))
 
@@ -163,6 +227,10 @@ class Launcher:
         self.browse.configure(state="disabled")
         self.save.configure(state="disabled")
         self.channels.configure(state="disabled")
+        self.check_button.configure(state="disabled")
+        self.update_button.configure(state="disabled")
+        for button in self.auth_buttons:
+            button.configure(state="disabled")
         self.bar.start(12)
         future = self.pool.submit(operation)
         future.add_done_callback(lambda f: self.events.put(f))
@@ -179,7 +247,60 @@ class Launcher:
             return
         selected_channel = self.channel.get()
         self.start_work(lambda: install_and_play(folder, selected_channel), folder,
-                        "Checking for updates, installing if needed, then launching MKWOM...")
+                        "Verifying MKWOM login, checking updates, then launching multiplayer...")
+
+    def auth_action(self, register: bool):
+        if not self.accounts_enabled or self.busy:
+            return
+        username, password = self.username.get().strip(), self.password.get()
+        self.password.set("")
+        action = "Registering" if register else "Logging in"
+        self.start_work(lambda: self.describe_login(authenticate(username, password, register)),
+                        self.current_folder() or Path.home(), action + " securely...")
+
+    @staticmethod
+    def describe_login(profile: dict) -> str:
+        return "Signed in as " + str(profile["username"]) + ". Game authentication integration is pending."
+
+    def auth_logout(self):
+        if self.accounts_enabled and not self.busy:
+            self.start_work(lambda: (logout(), "Logged out from MKWOM account.")[1],
+                            self.current_folder() or Path.home(), "Logging out...")
+
+    def safe_update_notice(self, folder: Path, channel: str) -> str:
+        try:
+            return self.describe_updates(update_status(folder, channel))
+        except Exception as exc:
+            return "Could not check the " + channel + " update channel: " + str(exc)
+
+    def check_updates(self):
+        folder = self.current_folder()
+        if folder and not self.busy:
+            channel = self.channel.get()
+            self.start_work(lambda: self.safe_update_notice(folder, channel),
+                            folder, "Checking the MKWOM update channel...")
+
+    @staticmethod
+    def describe_updates(info: dict) -> str:
+        if info["patcher_update"]:
+            return "A newer MKWOM launcher is required. Download it from GitHub Releases."
+        if info["patch_update"]:
+            return ("Multiplayer update available on " + info["channel"] +
+                    ": " + str(info["available"]) + ". Click Update multiplayer.")
+        return "MKWOM multiplayer is up to date on " + info["channel"] + "."
+
+    def apply_update(self):
+        folder = self.current_folder()
+        if not folder or self.busy:
+            return
+        try:
+            self.persist(folder)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Invalid settings", str(exc))
+            return
+        channel = self.channel.get()
+        self.start_work(lambda: (update(folder, channel), "Multiplayer patch updated successfully.")[1],
+                        folder, "Downloading and installing the multiplayer update...")
 
     def remove(self):
         folder = self.current_folder()
@@ -199,10 +320,17 @@ class Launcher:
                 self.browse.configure(state="normal")
                 self.save.configure(state="normal")
                 self.channels.configure(state="readonly")
+                self.check_button.configure(state="normal")
+                self.update_button.configure(state="normal")
+                if self.accounts_enabled:
+                    for button in self.auth_buttons:
+                        button.configure(state="normal")
                 try:
                     result = future.result()
                     self.refresh()
                     self.status.set(result)
+                    if result.startswith(("Signed in as ", "Logged out from MKWOM")):
+                        self.account_status.set(result)
                 except Exception as exc:
                     self.refresh()
                     self.status.set("Operation failed: " + str(exc))

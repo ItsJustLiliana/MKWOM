@@ -8201,16 +8201,23 @@ index 7552212..4e502b9 100644
  #include "ui/launcher/launcher.h"
  
  #define MAX_MODULES 16
-@@ -619,6 +622,8 @@ int main(int argc, char **argv) {
+@@ -619,6 +622,14 @@ int main(int argc, char **argv) {
      // --unpack PACKAGE DEST [PREFIX...]: a packed dump's files written out (sdk/fs/pack_unpack.c), for the setup; first,
      // as the setup runs it before the game code exists (no address space, launcher or log file needed)
      if (argc >= 2 && !strcmp(argv[1], "--unpack")) return pack_unpack_main(argc - 2, argv + 2);
 +    // --server: the online server (runtime/srv/srv.h), with no game, window or address space of its own
 +    if (argc >= 2 && !strcmp(argv[1], "--server")) return srv_main(argc - 2, argv + 2);
++    // The patched executable remains the normal desktop entry. Its silent
++    // helper verifies accounts/updates and relaunches as a managed process.
++    if (!getenv("MKWOM_MANAGED") &&
++        (argc == 1 || (argc == 2 && !strcmp(argv[1], "--launcher")))) {
++        int delegated = net_mkwom_start_updater();
++        if (delegated) return delegated > 0 ? 0 : 1;
++    }
      if (want_launcher(argc, argv)) return run_launcher(argc, argv);
  #ifdef __linux__
      // MKW_ALLOW_PTRACE=1: let a debugger attach (tools/run/stacks.py) under yama ptrace_scope 1, without root.
-@@ -634,6 +639,7 @@ int main(int argc, char **argv) {
+@@ -634,6 +647,7 @@ int main(int argc, char **argv) {
      // Timed guest waits (kernel.c block_inner) sleep in whole milliseconds; at the default 15.6 ms tick a 1 ms wait
      // costs a full tick. MKW_TIMER_1MS=0 keeps the default for comparison.
      if (cfg_bool("MKW_TIMER_1MS")) plat_timer_1ms();
@@ -9299,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,976 @@
+@@ -0,0 +1,1014 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9720,6 +9727,44 @@ index 0000000..18cc1ef
 +    return 0;
 +}
 +#endif
++// A regular double-click on patched mkw.exe delegates updates to the
++// separately installed, silent MKWOM helper before loading any game files.
++// The managed child gets MKWOM_MANAGED=1; a direct launch never needs a shell.
++int net_mkwom_start_updater(void) {
++#ifdef _WIN32
++    wchar_t exe[MAX_PATH];
++    DWORD len = GetModuleFileNameW(NULL, exe, MAX_PATH);
++    if (!len || len >= MAX_PATH) return -1;
++    wchar_t *slash = wcsrchr(exe, L'\\');
++    if (!slash) return -1;
++    *slash = 0;
++    wchar_t helper[2 * MAX_PATH];
++    if (swprintf(helper, sizeof helper / sizeof *helper,
++                 L"%ls\\.mkwom\\updater.exe", exe) <= 0) return -1;
++    if (GetFileAttributesW(helper) == INVALID_FILE_ATTRIBUTES) {
++        MessageBoxW(NULL, L"MKWOM setup is incomplete. Install multiplayer with mkwom.exe first.",
++                    L"MKWOM", MB_OK | MB_ICONERROR);
++        return -1;
++    }
++    wchar_t cmd[4 * MAX_PATH];
++    if (swprintf(cmd, sizeof cmd / sizeof *cmd,
++                 L"\"%ls\" --autostart --game \"%ls\"", helper, exe) <= 0) return -1;
++    STARTUPINFOW start = {0};
++    PROCESS_INFORMATION proc = {0};
++    start.cb = sizeof start;
++    if (!CreateProcessW(helper, cmd, NULL, NULL, FALSE, 0, NULL, exe, &start, &proc)) {
++        MessageBoxW(NULL, L"Could not start the MKWOM updater from this game folder.",
++                    L"MKWOM", MB_OK | MB_ICONERROR);
++        return -1;
++    }
++    CloseHandle(proc.hThread);
++    CloseHandle(proc.hProcess);
++    return 1;
++#else
++    return 0;
++#endif
++}
++
 +int net_identity_token(const char *build, char *out, size_t cap) {
 +    const NetServer *s = net_server();
 +    NetProfile p;
@@ -10281,7 +10326,7 @@ new file mode 100644
 index 0000000..48e9bb6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,115 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server that speaks the game's online protocol (the one built into mkw, runtime/srv, or
 +// another): the settings, this player's friend code, the server's certificate and its friends API. Shared by the
@@ -10331,6 +10376,7 @@ index 0000000..48e9bb6
 +int net_parse_code(const char *text, char out[13]);            // any spelling of 12 digits -> 1
 +
 +// The identity token the game sends at sign-in. build: the main module's build ID in hex, may be "". 0 when off.
++int net_mkwom_start_updater(void); // 1 delegated, -1 failed, 0 unsupported
 +int net_identity_token(const char *build, char *out, size_t cap);
 +
 +// The server's certificate, DER, from MKW_ONLINE_CA, the saved copy or Droplet's; NULL when none (free it).

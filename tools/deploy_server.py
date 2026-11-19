@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import socket
 import ssl
@@ -80,6 +81,16 @@ def main():
                                        "--property=WorkingDirectory", "--value"], text=True).strip()
     if Path(working).resolve() != root:
         p.error("unit belongs to a different project")
+    command = subprocess.check_output(["systemctl", "--user", "show", a.unit,
+                                       "--property=ExecStart", "--value"], text=True)
+    match = re.search(r"argv\[\]=(.*?) ;", command)
+    argv = shlex.split(match[1]) if match else []
+    if not argv or Path(argv[0]).resolve() != exe:
+        p.error("unit does not execute the managed server binary")
+    if "--data" not in argv or Path(argv[argv.index("--data") + 1]).resolve() != data:
+        p.error("unit uses a different account store")
+    if "--port" not in argv or argv[argv.index("--port") + 1] != str(a.port):
+        p.error("unit uses a different lobby port")
     active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", a.unit]).returncode == 0
     if not active:
         p.error("deployment expects a healthy running instance; perform initial installation separately")

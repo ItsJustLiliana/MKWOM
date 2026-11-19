@@ -1,0 +1,25 @@
+name: Watch upstream compatibility
+on:
+  schedule:
+    - cron: '19 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Open a compatibility task instead of installing an unknown executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh api repos/adriadam10/mkw-recomp/releases/latest --jq .tag_name)
+          SUPPORTED=$(python3 -c "import json; print(json.load(open('compatibility.json'))['upstream_tag'])")
+          if [ "$LATEST" = "$SUPPORTED" ]; then exit 0; fi
+          TITLE="Support upstream $LATEST"
+          COUNT=$(gh issue list --state open --search "$TITLE in:title" --json number --jq length)
+          if [ "$COUNT" = 0 ]; then
+            gh issue create --title "$TITLE" --body "Upstream released $LATEST; this patch currently supports $SUPPORTED. Integrate source changes, update archive/source pins and pass runtime build, install/uninstall and multiplayer checks before enabling this version."
+          fi

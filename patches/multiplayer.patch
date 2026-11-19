@@ -20689,10 +20689,10 @@ index 1c68936..4b6fb5a 100644
 +}
 diff --git a/runtime/ui/menu/online_tab.cpp b/runtime/ui/menu/online_tab.cpp
 new file mode 100644
-index 0000000..e98a33e
+index 0000000..a5e3e53
 --- /dev/null
 +++ b/runtime/ui/menu/online_tab.cpp
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,247 @@
 +// F1 private-server controls, using the server and client integration from PRs #353/#354 (net_online.h).
 +// Unlike the launcher page, this runs during gameplay: even interface enumeration and port probes must be off
 +// the present/replay path. One detached worker handles an action and publishes a bounded snapshot under a lock.
@@ -20856,12 +20856,14 @@ index 0000000..e98a33e
 +    view = snapshot;
 +    plat_mutex_unlock(&lock);
 +    ImGui::BeginChild("##online_controls", ImVec2(0, -bottom), ImGuiChildFlags_NavFlattened);
++    const bool managed = getenv("MKWOM_MANAGED") != NULL;
++    bool changing = active.load() > REFRESH || pending.action != IDLE;
++    if (!managed) {
 +    ImGui::TextWrapped("%s", menu_text(UI_F1_EXPERIMENTAL));
 +    ImGui::TextWrapped("%s", menu_text(UI_F1_INSTRUCTIONS));
 +    ImGui::SeparatorText(menu_text(UI_ONLINE_NETWORK));
 +    const UiTextId names[] = {UI_ONLINE_NET_AUTO, UI_ONLINE_NET_HOME, UI_ONLINE_NET_TS};
 +    // Status polling never changes widget enablement or focus. Only an explicit action blocks other actions.
-+    bool changing = active.load() > REFRESH || pending.action != IDLE;
 +    bool running = view.host == NET_HOST_RUNNING || view.host == NET_HOST_STARTING || view.host == NET_HOST_OTHER;
 +    ImGui::BeginDisabled(changing || running);
 +    for (int i = 0; i < 3; i++) {
@@ -20900,23 +20902,27 @@ index 0000000..e98a33e
 +    if (ImGui::Button(menu_text(UI_F1_OFF))) submit(OFF);
 +    ImGui::EndDisabled();
 +    if (*view.server) ImGui::TextWrapped("%s: %s", menu_text(UI_ONLINE_SERVER), view.server);
++    }
 +    if (view.enabled) {
 +        NetParty party;
 +        net_party_snapshot(&party);
 +        if (strcmp(party.server, view.server) || !party.reached) {
-+            ImGui::TextWrapped("%s", *party.error ? party.error : menu_text(UI_F1_CLIENTS_WAIT));
++            ImGui::TextWrapped("%s", managed ? "Connecting / offline" : *party.error ? party.error : menu_text(UI_F1_CLIENTS_WAIT));
 +        } else if (*party.error) {
-+            ImGui::TextWrapped("%s", party.error);
++            ImGui::TextWrapped("%s", managed ? "Offline / server unavailable" : party.error);
 +        } else {
++            if (managed) ImGui::TextUnformatted("Online");
 +            char title[120];
-+            snprintf(title, sizeof title, menu_text(UI_F1_CLIENTS), party.nclients);
++            const NetFriend *roster = managed ? party.friends : party.clients;
++            int n = managed ? party.nfriends : party.nclients;
++            snprintf(title, sizeof title, menu_text(managed ? UI_ONLINE_FRIENDS : UI_F1_CLIENTS), n);
 +            ImGui::SeparatorText(title);
-+            for (int i = 0; i < party.nclients; i++) {
++            for (int i = 0; i < n; i++) {
 +                char code[18];
-+                net_format_code(party.clients[i].code, code);
-+                ImGui::TextWrapped("%s%s%s (%s)", *party.clients[i].name ? party.clients[i].name : code,
-+                                   *party.clients[i].name ? " - " : "", *party.clients[i].name ? code : "",
-+                                   menu_text(party.clients[i].online ? UI_F1_CLIENT_GAME : UI_F1_CLIENT_ONLY));
++                net_format_code(roster[i].code, code);
++                ImGui::TextWrapped("%s%s%s (%s)", *roster[i].name ? roster[i].name : code,
++                                   *roster[i].name ? " - " : "", *roster[i].name ? code : "",
++                                   menu_text(roster[i].online ? UI_F1_CLIENT_GAME : UI_F1_CLIENT_ONLY));
 +            }
 +            if (*party.room) {
 +                snprintf(title, sizeof title, menu_text(UI_F1_PARTY_ROOM), party.room);
@@ -20929,7 +20935,7 @@ index 0000000..e98a33e
 +            } else ImGui::TextWrapped("%s", menu_text(UI_F1_PARTY_NONE));
 +        }
 +    }
-+    if (*view.status) ImGui::TextWrapped("%s", view.status);
++    if (!managed && *view.status) ImGui::TextWrapped("%s", view.status);
 +    if (view.restart) ImGui::TextWrapped("%s", menu_text(UI_F1_RESTART));
 +    if (changing) ImGui::TextUnformatted("...");
 +    ImGui::EndChild();

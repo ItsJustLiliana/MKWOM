@@ -9,6 +9,10 @@ import sys
 tag, channel = os.environ["RELEASE_TAG"], os.environ["CHANNEL"]
 if channel not in ("pre-beta", "beta", "release") or not re.fullmatch(r"[A-Za-z0-9._+-]+", tag):
     raise ValueError("invalid channel/tag")
+# Do not publish an unverified newly configured public server endpoint.
+if os.environ.get("COMMUNITY_ENDPOINT") and os.environ.get("AUTO_DEPLOY") != "true":
+    raise ValueError("COMMUNITY_ENDPOINT requires AUTO_DEPLOY=true and a successful deployment")
+
 Path("dist").mkdir(exist_ok=True)
 subprocess.run(["gh", "release", "download", tag, "--dir", "dist", "--pattern", "build-info.json",
                 "--pattern", "mkwom-patch-windows-x64.zip", "--pattern", "SHA256SUMS"], check=True)

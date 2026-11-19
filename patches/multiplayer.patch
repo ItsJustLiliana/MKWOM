@@ -9299,7 +9299,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,891 @@
+@@ -0,0 +1,975 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9641,6 +9641,84 @@ index 0000000..18cc1ef
 +    return ok;
 +}
 +
++// MKWOM login is restored without the Python setup. The DPAPI blob can only be
++// decrypted by the Windows user who completed setup; it is not a plaintext token.
++#ifdef _WIN32
++static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
++    wchar_t path[MAX_PATH];
++    DWORD npath = GetModuleFileNameW(NULL, path, MAX_PATH);
++    if (!npath || npath >= MAX_PATH) return 0;
++    wchar_t *slash = wcsrchr(path, L'\\');
++    if (!slash || (size_t)(slash - path) + 29 >= MAX_PATH) return 0;
++    wcscpy(slash + 1, L".mkwom\\account-session.dpapi");
++    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
++    if (file == INVALID_HANDLE_VALUE) return 0;
++    BYTE encrypted[2048];
++    DWORD got = 0, size = GetFileSize(file, NULL);
++    BOOL read_ok = size > 0 && size <= sizeof encrypted && ReadFile(file, encrypted, size, &got, NULL);
++    CloseHandle(file);
++    if (!read_ok || got != size) return 0;
++    DATA_BLOB input = {size, encrypted}, output = {0};
++    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) return 0;
++    char access[65] = {0};
++    int ok = 0;
++    if (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) {
++        memcpy(access, output.pbData + 9, 64);
++        ok = 1;
++        for (int i = 0; i < 64; i++)
++            if (!((access[i] >= '0' && access[i] <= '9') || (access[i] >= 'a' && access[i] <= 'f'))) ok = 0;
++    }
++    SecureZeroMemory(output.pbData, output.cbData);
++    LocalFree(output.pbData);
++    SecureZeroMemory(encrypted, sizeof encrypted);
++    if (!ok) return 0;
++    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
++                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
++    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom.liliananuzohra.com", 443, 0) : NULL;
++    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
++                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
++    char body[96];
++    int body_n = snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
++    wchar_t headers[256];
++    swprintf(headers, sizeof headers / sizeof *headers,
++             L"Content-Type: application/json\r\nAuthorization: Bearer %hs\r\n", access);
++    SecureZeroMemory(access, sizeof access);
++    if (!req || body_n <= 0 || body_n >= (int)sizeof body) goto close;
++    WinHttpSetTimeouts(req, 3000, 3000, 5000, 5000);
++    DWORD reject_redirect = WINHTTP_DISABLE_REDIRECTS;
++    WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &reject_redirect, sizeof reject_redirect);
++    if (!WinHttpSendRequest(req, headers, (DWORD)-1L, body, (DWORD)body_n, (DWORD)body_n, 0)) goto close;
++    if (!WinHttpReceiveResponse(req, NULL)) goto close;
++    DWORD status = 0, sl = sizeof status;
++    if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
++                             NULL, &status, &sl, NULL) || status != 200) goto close;
++    char reply[512] = {0};
++    DWORD bytes = 0;
++    if (!WinHttpReadData(req, reply, sizeof reply - 1, &bytes) || !bytes) goto close;
++    const char *p = strstr(reply, "\"ticket\":\"");
++    if (!p) goto close;
++    p += 10;
++    const char *q = strchr(p, '"');
++    if (!q || q - p < 100 || (size_t)(q - p) >= cap) goto close;
++    for (const char *x = p; x < q; x++)
++        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'f') ||
++              *x == 'v' || *x == '.')) goto close;
++    memcpy(ticket, p, (size_t)(q - p));
++    ticket[q - p] = 0;
++    ok = 1;
++close:
++    SecureZeroMemory(headers, sizeof headers);
++    if (req) WinHttpCloseHandle(req);
++    if (con) WinHttpCloseHandle(con);
++    if (ses) WinHttpCloseHandle(ses);
++    return ok;
++}
++#else
++static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
++    (void)code; (void)ticket; (void)cap;
++    return 0;
++}
++#endif
 +int net_identity_token(const char *build, char *out, size_t cap) {
 +    const NetServer *s = net_server();
 +    NetProfile p;
@@ -9648,9 +9726,15 @@ index 0000000..18cc1ef
 +    char friends[NET_MAX_CODES * 13 + 1], removed[NET_MAX_CODES * 13 + 1];
 +    join_codes(friends, sizeof friends, (const char (*)[13])p.friends, p.nfriends);
 +    join_codes(removed, sizeof removed, (const char (*)[13])p.removed, p.nremoved);
-+    int n = snprintf(out, cap, "droplet-online-v1;code=%s;secret=%s%s%s;friends=%s%s%s", p.code, p.secret,
-+                     build && *build ? ";build=" : "", build ? build : "", friends, p.nremoved ? ";removed=" : "",
-+                     removed);
++    char game_ticket[256];
++    if (!mkwom_game_ticket(p.code, game_ticket, sizeof game_ticket)) {
++        rt_log("mkwom: account session missing, revoked or unreachable; refusing online sign-in");
++        return 0;
++    }
++    int n = snprintf(out, cap, "droplet-online-v1;code=%s;secret=%s%s%s;friends=%s%s%s;mkwom=%s",
++                     p.code, p.secret, build && *build ? ";build=" : "", build ? build : "",
++                     friends, p.nremoved ? ";removed=" : "", removed, game_ticket);
++    SecureZeroMemory(game_ticket, sizeof game_ticket);
 +    return n > 0 && (size_t)n < cap;
 +}
 +

@@ -25,7 +25,7 @@ jobs:
       - run: ruff check mkwom tools tests server
       - name: Validate Arch bootstrap shell script
         if: runner.os == 'Linux'
-        run: bash -n scripts/setup_arch_accounts_prebeta.sh
+        run: bash -n scripts/setup_arch_accounts_prebeta.sh scripts/setup_arch_lobby_prebeta.sh
   client:
     runs-on: ubuntu-24.04
     steps:

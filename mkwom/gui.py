@@ -11,6 +11,8 @@ from .accounts_client import AuthError, api_base, authenticate, current_user, lo
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
 
+SETUP_LAUNCHED = "MKWOM is up to date. Starting the game."
+
 COLORS = {
     "bg": "#101722", "panel": "#192435", "text": "#f1f5f9",
     "muted": "#9fb0c6", "accent": "#45dbab",
@@ -24,7 +26,7 @@ def install_and_play(folder: Path, channel: str) -> str:
     # Validate again after downloading: revocation or expiry must fail closed.
     ensure_online_login(channel)
     launch(folder)
-    return "MKWOM is up to date. Starting the game."
+    return SETUP_LAUNCHED
 
 
 def ensure_online_login(channel: str = "pre-beta") -> dict:
@@ -339,6 +341,10 @@ class Launcher:
                     result = future.result()
                     self.refresh()
                     self.status.set(result)
+                    if result == SETUP_LAUNCHED:
+                        # Close only after a verified login, successful update and game launch.
+                        self.close()
+                        return
                     if result.startswith(("Signed in as ", "Logged out from MKWOM")):
                         self.account_status.set(result)
                 except Exception as exc:

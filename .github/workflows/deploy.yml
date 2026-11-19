@@ -8,15 +8,6 @@ on:
       environment:
         type: string
         required: true
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Tested release tag
-        required: true
-      environment:
-        type: choice
-        options: [pre-beta, beta, release]
-        required: true
 permissions:
   contents: read
 concurrency:

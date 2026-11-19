@@ -103,7 +103,9 @@ def update(game: Path, channel: str):
     settings = read_json(game / ".mkwom/settings.json", {})
     settings["channel"] = channel
     # Channel endpoint is controlled by the channel publisher; current setup can keep its saved endpoint.
-    if manifest.get("endpoint"):
+    if manifest.get("endpoint") and settings.get("endpoint_mode") != "custom" and not (
+        settings.get("endpoint") and "endpoint_mode" not in settings
+    ):
         settings["endpoint"] = endpoint(manifest["endpoint"])
     json_write(game / ".mkwom/settings.json", settings)
 
@@ -168,6 +170,7 @@ def main(argv=None):
             print("Original runtime restored; saves, profiles and INI were preserved.")
         elif a.command == "configure":
             settings["endpoint"] = a.endpoint
+            settings["endpoint_mode"] = "custom"
             json_write(game / ".mkwom/settings.json", settings)
             print("Local endpoint configured.")
         elif a.command == "status":

@@ -10,6 +10,9 @@ from .cli import CHANNELS, endpoint, launch, update, update_status
 from .accounts_client import AuthError, api_base, authenticate, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
+from .direct_launch import persist_online_settings
+from .session_storage import protect_for_game, remove_game_session
+from .autostart import install_helper
 
 SETUP_LAUNCHED = "MKWOM is up to date. Starting the game."
 
@@ -25,6 +28,15 @@ def install_and_play(folder: Path, channel: str) -> str:
     update(folder, channel)
     # Validate again after downloading: revocation or expiry must fail closed.
     ensure_online_login(channel)
+    # Store only a Windows-DPAPI-encrypted session in the game folder.
+    access_token = token()
+    if not access_token:
+        raise AuthError("No securely stored account session is available.")
+    protect_for_game(folder, access_token, channel)
+    # Persist networking in recomp itself; subsequent direct mkw.exe starts
+    # must not depend on process-only environment variables from this setup.
+    persist_online_settings(folder)
+    install_helper(folder)
     launch(folder)
     return SETUP_LAUNCHED
 
@@ -53,7 +65,7 @@ class Launcher:
         self.events = queue.Queue()
         self.busy = False
         self.folder = tk.StringVar(value=str(detect_game() or ""))
-        self.channel = tk.StringVar(value="release")
+        self.channel = tk.StringVar(value="pre-beta")
         self.endpoint = tk.StringVar()
         self.status = tk.StringVar(value="Choose your game folder to get started.")
         self.details = tk.StringVar(value="")
@@ -125,7 +137,7 @@ class Launcher:
         self.channels = ttk.Combobox(line, values=CHANNELS, state="readonly",
                                      textvariable=self.channel, width=13)
         self.channels.grid(row=0, column=1, padx=(12, 0), sticky="w")
-        ttk.Label(line, text="Server (optional)").grid(row=1, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(line, text="Custom server (blank = community)").grid(row=1, column=0, sticky="w", pady=(12, 0))
         self.server = ttk.Entry(line, textvariable=self.endpoint, width=35)
         self.server.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(12, 0))
         line.columnconfigure(1, weight=1)
@@ -184,8 +196,8 @@ class Launcher:
         try:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
-            self.channel.set(settings.get("channel", "release"))
-            self.endpoint.set(settings.get("endpoint", ""))
+            self.channel.set(settings.get("channel", "pre-beta"))
+            self.endpoint.set(settings.get("endpoint", "") if settings.get("endpoint_mode") != "channel" else "")
             self.update_auth_buttons()
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
@@ -206,6 +218,10 @@ class Launcher:
         settings["channel"] = self.channel.get()
         if self.endpoint.get().strip():
             settings["endpoint"] = endpoint(self.endpoint.get().strip())
+            settings["endpoint_mode"] = "custom"
+        else:
+            settings["endpoint_mode"] = "channel"
+            settings.pop("endpoint", None)
         json_write(folder / ".mkwom" / "settings.json", settings)
 
     def save_server(self):
@@ -275,6 +291,14 @@ class Launcher:
     @staticmethod
     def describe_login(profile: dict) -> str:
         return "Signed in as " + str(profile["username"]) + ". Game authentication integration is pending."
+
+    def logout_and_clear(self, folder: Path | None, channel: str) -> str:
+        try:
+            logout(channel=channel)
+        finally:
+            if folder:
+                remove_game_session(folder)
+        return "Logged out from MKWOM account."
 
     def auth_logout(self):
         if self.accounts_enabled and not self.busy:

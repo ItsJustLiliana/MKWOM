@@ -49,3 +49,27 @@ def test_rate_limit(client):
 
 def test_bad_username(client):
     assert client.post("/register", json={"username": "../bad", "password": "valid-password-123"}).status_code == 422
+
+
+def test_game_ticket_requires_configured_secret_and_login(client, monkeypatch):
+    body = {"friend_code": "012345678901"}
+    created = client.post("/register", json={"username": "TicketTester", "password": "long-safe-password-123"})
+    token = created.json()["access_token"]
+    auth = {"Authorization": "Bearer " + token}
+    assert client.post("/game-ticket", json=body, headers=auth).status_code == 503
+    monkeypatch.setenv("MKWOM_GAME_TICKET_KEY", "ab" * 32)
+    assert client.post("/game-ticket", json=body).status_code == 401
+    assert client.post("/game-ticket", json={"friend_code": "invalid"}, headers=auth).status_code == 422
+    result = client.post("/game-ticket", json=body, headers=auth)
+    assert result.status_code == 200, result.text
+    ticket = result.json()["ticket"]
+    parts = ticket.split(".")
+    assert len(parts) == 6 and parts[0] == "v1"
+    assert parts[2] == body["friend_code"]
+    assert len(parts[1]) == 32 and len(parts[4]) == 16 and len(parts[5]) == 64
+    import hashlib
+    import hmac
+    signature = hmac.new(bytes.fromhex("ab" * 32), ".".join(parts[:5]).encode(), hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(signature, parts[5])
+    client.post("/logout", headers=auth)
+    assert client.post("/game-ticket", json=body, headers=auth).status_code == 401

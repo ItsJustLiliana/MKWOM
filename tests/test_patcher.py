@@ -222,3 +222,23 @@ def test_windows_device_and_alias_paths_are_rejected(name):
 def test_invalid_zlib_is_reported_as_patch_error():
     with pytest.raises(ValueError, match="compressed"):
         delta.decode(b"", delta.MAGIC + struct.pack("<I", 1) + b"not zlib")
+
+
+def test_updater_does_not_replace_explicit_backup_server(folders, monkeypatch):
+    _, _, game, archive = folders
+    installer.json_write(game / ".mkwom/settings.json",
+                         {"channel": "pre-beta", "endpoint": "private.example:18443", "endpoint_mode": "custom"})
+    blob = archive.read_bytes()
+    def get(url, _limit):
+        if url.endswith("/releases/tags/channel-pre-beta"):
+            return json.dumps({"assets": [{"name": "channel.json", "browser_download_url":
+                               "https://github.com/ItsJustLiliana/MKWOM/releases/download/channel-pre-beta/channel.json"}]}).encode()
+        if url.endswith("/channel.json"):
+            return json.dumps({"format": 1, "channel": "pre-beta", "version": "test-1",
+                               "installer_version": "0.1.0", "sha256": delta.sha(blob),
+                               "patch_url": "https://github.com/ItsJustLiliana/MKWOM/releases/download/test/patch.zip",
+                               "endpoint": "new-community.example:18443"}).encode()
+        return blob
+    monkeypatch.setattr(cli, "download", get)
+    cli.update(game, "pre-beta")
+    assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == "private.example:18443"

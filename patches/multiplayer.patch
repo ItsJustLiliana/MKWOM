@@ -8201,16 +8201,23 @@ index 7552212..4e502b9 100644
  #include "ui/launcher/launcher.h"
  
  #define MAX_MODULES 16
-@@ -619,6 +622,8 @@ int main(int argc, char **argv) {
+@@ -619,6 +622,15 @@ int main(int argc, char **argv) {
      // --unpack PACKAGE DEST [PREFIX...]: a packed dump's files written out (sdk/fs/pack_unpack.c), for the setup; first,
      // as the setup runs it before the game code exists (no address space, launcher or log file needed)
      if (argc >= 2 && !strcmp(argv[1], "--unpack")) return pack_unpack_main(argc - 2, argv + 2);
 +    // --server: the online server (runtime/srv/srv.h), with no game, window or address space of its own
 +    if (argc >= 2 && !strcmp(argv[1], "--server")) return srv_main(argc - 2, argv + 2);
++    // The patched executable remains the normal desktop entry. Its silent
++    // helper verifies accounts/updates and relaunches as a managed process.
++    if (!getenv("MKWOM_MANAGED") &&
++        (argc == 1 || (argc == 2 && !strcmp(argv[1], "--launcher")))) {
++        int delegated = net_mkwom_start_updater();
++        if (delegated) return delegated > 0 ? 0 : 1;
++    }
      if (want_launcher(argc, argv)) return run_launcher(argc, argv);
  #ifdef __linux__
      // MKW_ALLOW_PTRACE=1: let a debugger attach (tools/run/stacks.py) under yama ptrace_scope 1, without root.
-@@ -634,6 +639,7 @@ int main(int argc, char **argv) {
+@@ -634,6 +646,7 @@ int main(int argc, char **argv) {
      // Timed guest waits (kernel.c block_inner) sleep in whole milliseconds; at the default 15.6 ms tick a 1 ms wait
      // costs a full tick. MKW_TIMER_1MS=0 keeps the default for comparison.
      if (cfg_bool("MKW_TIMER_1MS")) plat_timer_1ms();
@@ -9299,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,891 @@
+@@ -0,0 +1,1015 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9641,6 +9648,124 @@ index 0000000..18cc1ef
 +    return ok;
 +}
 +
++// MKWOM login is restored without the Python setup. The DPAPI blob can only be
++// decrypted by the Windows user who completed setup; it is not a plaintext token.
++#ifdef _WIN32
++static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
++    wchar_t path[MAX_PATH];
++    DWORD npath = GetModuleFileNameW(NULL, path, MAX_PATH);
++    if (!npath || npath >= MAX_PATH) return 0;
++    wchar_t *slash = wcsrchr(path, L'\\');
++    if (!slash || (size_t)(slash - path) + 29 >= MAX_PATH) return 0;
++    wcscpy(slash + 1, L".mkwom\\account-session.dpapi");
++    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
++    if (file == INVALID_HANDLE_VALUE) return 0;
++    BYTE encrypted[2048];
++    DWORD got = 0, size = GetFileSize(file, NULL);
++    BOOL read_ok = size > 0 && size <= sizeof encrypted && ReadFile(file, encrypted, size, &got, NULL);
++    CloseHandle(file);
++    if (!read_ok || got != size) return 0;
++    DATA_BLOB input = {size, encrypted}, output = {0};
++    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) return 0;
++    char access[65] = {0};
++    int ok = 0;
++    if (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) {
++        memcpy(access, output.pbData + 9, 64);
++        ok = 1;
++        for (int i = 0; i < 64; i++)
++            if (!((access[i] >= '0' && access[i] <= '9') || (access[i] >= 'a' && access[i] <= 'f'))) ok = 0;
++    }
++    SecureZeroMemory(output.pbData, output.cbData);
++    LocalFree(output.pbData);
++    SecureZeroMemory(encrypted, sizeof encrypted);
++    if (!ok) return 0;
++    ok = 0;  // A valid local token is NOT a successful remote login.
++    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
++                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
++    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom.liliananuzohra.com", 443, 0) : NULL;
++    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
++                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
++    char body[96];
++    int body_n = snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
++    wchar_t headers[256];
++    swprintf(headers, sizeof headers / sizeof *headers,
++             L"Content-Type: application/json\r\nAuthorization: Bearer %hs\r\n", access);
++    SecureZeroMemory(access, sizeof access);
++    if (!req || body_n <= 0 || body_n >= (int)sizeof body) goto close;
++    WinHttpSetTimeouts(req, 3000, 3000, 5000, 5000);
++    DWORD reject_redirect = WINHTTP_DISABLE_REDIRECTS;
++    WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &reject_redirect, sizeof reject_redirect);
++    if (!WinHttpSendRequest(req, headers, (DWORD)-1L, body, (DWORD)body_n, (DWORD)body_n, 0)) goto close;
++    if (!WinHttpReceiveResponse(req, NULL)) goto close;
++    DWORD status = 0, sl = sizeof status;
++    if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
++                             NULL, &status, &sl, NULL) || status != 200) goto close;
++    char reply[512] = {0};
++    DWORD bytes = 0;
++    if (!WinHttpReadData(req, reply, sizeof reply - 1, &bytes) || !bytes) goto close;
++    const char *p = strstr(reply, "\"ticket\":\"");
++    if (!p) goto close;
++    p += 10;
++    const char *q = strchr(p, '"');
++    if (!q || q - p < 100 || (size_t)(q - p) >= cap) goto close;
++    for (const char *x = p; x < q; x++)
++        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'f') ||
++              *x == 'v' || *x == '.')) goto close;
++    memcpy(ticket, p, (size_t)(q - p));
++    ticket[q - p] = 0;
++    ok = 1;
++close:
++    SecureZeroMemory(headers, sizeof headers);
++    if (req) WinHttpCloseHandle(req);
++    if (con) WinHttpCloseHandle(con);
++    if (ses) WinHttpCloseHandle(ses);
++    return ok;
++}
++#else
++static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
++    (void)code; (void)ticket; (void)cap;
++    return 0;
++}
++#endif
++// A regular double-click on patched mkw.exe delegates updates to the
++// separately installed, silent MKWOM helper before loading any game files.
++// The managed child gets MKWOM_MANAGED=1; a direct launch never needs a shell.
++int net_mkwom_start_updater(void) {
++#ifdef _WIN32
++    wchar_t exe[MAX_PATH];
++    DWORD len = GetModuleFileNameW(NULL, exe, MAX_PATH);
++    if (!len || len >= MAX_PATH) return -1;
++    wchar_t *slash = wcsrchr(exe, L'\\');
++    if (!slash) return -1;
++    *slash = 0;
++    wchar_t helper[2 * MAX_PATH];
++    if (swprintf(helper, sizeof helper / sizeof *helper,
++                 L"%ls\\.mkwom\\updater.exe", exe) <= 0) return -1;
++    if (GetFileAttributesW(helper) == INVALID_FILE_ATTRIBUTES) {
++        MessageBoxW(NULL, L"MKWOM setup is incomplete. Install multiplayer with mkwom.exe first.",
++                    L"MKWOM", MB_OK | MB_ICONERROR);
++        return -1;
++    }
++    wchar_t cmd[4 * MAX_PATH];
++    if (swprintf(cmd, sizeof cmd / sizeof *cmd,
++                 L"\"%ls\" --autostart --game \"%ls\" --parent-pid %lu",
++                 helper, exe, (unsigned long)GetCurrentProcessId()) <= 0) return -1;
++    STARTUPINFOW start = {0};
++    PROCESS_INFORMATION proc = {0};
++    start.cb = sizeof start;
++    if (!CreateProcessW(helper, cmd, NULL, NULL, FALSE, 0, NULL, exe, &start, &proc)) {
++        MessageBoxW(NULL, L"Could not start the MKWOM updater from this game folder.",
++                    L"MKWOM", MB_OK | MB_ICONERROR);
++        return -1;
++    }
++    CloseHandle(proc.hThread);
++    CloseHandle(proc.hProcess);
++    return 1;
++#else
++    return 0;
++#endif
++}
++
 +int net_identity_token(const char *build, char *out, size_t cap) {
 +    const NetServer *s = net_server();
 +    NetProfile p;
@@ -9648,9 +9773,15 @@ index 0000000..18cc1ef
 +    char friends[NET_MAX_CODES * 13 + 1], removed[NET_MAX_CODES * 13 + 1];
 +    join_codes(friends, sizeof friends, (const char (*)[13])p.friends, p.nfriends);
 +    join_codes(removed, sizeof removed, (const char (*)[13])p.removed, p.nremoved);
-+    int n = snprintf(out, cap, "droplet-online-v1;code=%s;secret=%s%s%s;friends=%s%s%s", p.code, p.secret,
-+                     build && *build ? ";build=" : "", build ? build : "", friends, p.nremoved ? ";removed=" : "",
-+                     removed);
++    char game_ticket[256];
++    if (!mkwom_game_ticket(p.code, game_ticket, sizeof game_ticket)) {
++        rt_log("mkwom: account session missing, revoked or unreachable; refusing online sign-in");
++        return 0;
++    }
++    int n = snprintf(out, cap, "droplet-online-v1;code=%s;secret=%s%s%s;friends=%s%s%s;mkwom=%s",
++                     p.code, p.secret, build && *build ? ";build=" : "", build ? build : "",
++                     friends, p.nremoved ? ";removed=" : "", removed, game_ticket);
++    memset(game_ticket, 0, sizeof game_ticket);
 +    return n > 0 && (size_t)n < cap;
 +}
 +
@@ -10196,7 +10327,7 @@ new file mode 100644
 index 0000000..48e9bb6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.h
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,115 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server that speaks the game's online protocol (the one built into mkw, runtime/srv, or
 +// another): the settings, this player's friend code, the server's certificate and its friends API. Shared by the
@@ -10246,6 +10377,7 @@ index 0000000..48e9bb6
 +int net_parse_code(const char *text, char out[13]);            // any spelling of 12 digits -> 1
 +
 +// The identity token the game sends at sign-in. build: the main module's build ID in hex, may be "". 0 when off.
++int net_mkwom_start_updater(void); // 1 delegated, -1 failed, 0 unsupported
 +int net_identity_token(const char *build, char *out, size_t cap);
 +
 +// The server's certificate, DER, from MKW_ONLINE_CA, the saved copy or Droplet's; NULL when none (free it).
@@ -13418,7 +13550,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,518 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13626,6 +13758,7 @@ index 0000000..721d8cb
 +typedef struct {
 +    uint64_t code;
 +    char secret[129], build[65];
++    char game_ticket[256];
 +    char friends[LIST_MAX], removed[LIST_MAX];   // comma-separated codes
 +} Identity;
 +
@@ -13668,6 +13801,7 @@ index 0000000..721d8cb
 +        if (!strcmp(item, "code") && twelve_digits(v, strlen(v))) id->code = strtoull(v, NULL, 10);
 +        else if (!strcmp(item, "secret")) snprintf(id->secret, sizeof id->secret, "%s", v);
 +        else if (!strcmp(item, "build")) keep_build(id->build, v);
++        else if (!strcmp(item, "mkwom")) snprintf(id->game_ticket, sizeof id->game_ticket, "%s", v);
 +        else if (!strcmp(item, "friends")) snprintf(id->friends, sizeof id->friends, "%s", v);
 +        else if (!strcmp(item, "removed")) snprintf(id->removed, sizeof id->removed, "%s", v);
 +    }
@@ -13739,6 +13873,72 @@ index 0000000..721d8cb
 +    return 0;
 +}
 +
++// Cross-process MKWOM ticket: HMAC-SHA256 with an operator-provided shared key.
++// The account API, not the client, signs v1.<account-id>.<friend-code>.<expiry>.<nonce>.
++// The game server keeps the key; no plaintext account bearer enters game traffic.
++static int mkwom_ticket_valid(const char *ticket, uint64_t friend_code, char account_id[33]) {
++    account_id[0] = 0;
++    const char *secret = getenv("MKWOM_GAME_TICKET_KEY");
++    if (!secret || strlen(secret) != 64 || strspn(secret, "0123456789abcdef") != 64) return 0;
++    if (!ticket || strlen(ticket) >= 256) return 0;
++    char copy[256];
++    snprintf(copy, sizeof copy, "%s", ticket);
++    char *part[6] = {copy};
++    for (int i = 1; i < 6; i++) {
++        char *dot = strchr(part[i - 1], '.');
++        if (!dot) return 0;
++        *dot = 0;
++        part[i] = dot + 1;
++    }
++    if (strchr(part[5], '.') || strcmp(part[0], "v1") ||
++        strlen(part[1]) != 32 || strspn(part[1], "0123456789abcdef") != 32 ||
++        strlen(part[2]) != 12 || strspn(part[2], "0123456789") != 12 ||
++        strlen(part[4]) != 16 || strspn(part[4], "0123456789abcdef") != 16 ||
++        strlen(part[5]) != 64 || strspn(part[5], "0123456789abcdef") != 64) return 0;
++    char expected[16];
++    snprintf(expected, sizeof expected, "%012llu", (unsigned long long)friend_code);
++    if (strcmp(part[2], expected)) return 0;
++    if (!*part[3] || strlen(part[3]) > 12 || strspn(part[3], "0123456789") != strlen(part[3])) return 0;
++    int64_t expiry = strtoll(part[3], NULL, 10), now = (int64_t)time(NULL);
++    if (expiry <= now || expiry > now + 150) return 0;
++    uint8_t key[32], mac[32];
++    for (int i = 0; i < 32; i++) {
++        unsigned value;
++        if (sscanf(secret + 2 * i, "%2x", &value) != 1) return 0;
++        key[i] = (uint8_t)value;
++    }
++    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
++    psa_set_key_type(&attr, PSA_KEY_TYPE_HMAC);
++    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_SIGN_MESSAGE);
++    psa_set_key_algorithm(&attr, PSA_ALG_HMAC(PSA_ALG_SHA_256));
++    mbedtls_svc_key_id_t crypto;
++    if (psa_import_key(&attr, key, sizeof key, &crypto) != PSA_SUCCESS) return 0;
++    memset(key, 0, sizeof key);
++    const char *dot = strrchr(ticket, '.');
++    size_t n = 0;
++    psa_status_t result = psa_mac_compute(crypto, PSA_ALG_HMAC(PSA_ALG_SHA_256),
++                                          (const uint8_t *)ticket, (size_t)(dot - ticket),
++                                          mac, sizeof mac, &n);
++    psa_destroy_key(crypto);
++    if (result != PSA_SUCCESS || n != 32) return 0;
++    unsigned diff = 0;
++    for (int i = 0; i < 32; i++) {
++        char hex[3];
++        snprintf(hex, sizeof hex, "%02x", mac[i]);
++        diff |= (unsigned)(hex[0] ^ part[5][2 * i]);
++        diff |= (unsigned)(hex[1] ^ part[5][2 * i + 1]);
++    }
++    memset(mac, 0, sizeof mac);
++    if (diff) return 0;
++    snprintf(account_id, 33, "%s", part[1]);
++    return 1;
++}
++
++static int mkwom_auth_required(void) {
++    const char *key = getenv("MKWOM_GAME_TICKET_KEY"), *required = getenv("MKWOM_ACCOUNT_ENFORCE");
++    return (key && *key) || (required && !strcmp(required, "1"));
++}
++
 +// ---- Auth/IssuePrearrangedUserToken
 +static void put_now(PbOut *o, uint32_t num) {
 +    size_t m = pb_begin(o, num);
@@ -13771,6 +13971,13 @@ index 0000000..721d8cb
 +    static Identity id;   // 8 KiB: not on the stack
 +    int has = pb_find(msg, len, 3, &cred) == 1 && cred.wt == PB_LEN && pb_find(cred.data, cred.len, 1, &token) == 1 &&
 +              token.wt == PB_LEN && parse_identity((const char *)token.data, token.len, &id);
++    char bound_account[33] = "";
++    int enforce_accounts = mkwom_auth_required();
++    if (enforce_accounts &&
++        (!has || !mkwom_ticket_valid(id.game_ticket, id.code, bound_account))) {
++        srv_call_end(c, ST_PERMISSION_DENIED, "MKWOM account login required or expired");
++        return;
++    }
 +    const char *mode = srv_setting("registration", "open");
 +    char uid[24];
 +    uint64_t code = 0;
@@ -13778,6 +13985,14 @@ index 0000000..721d8cb
 +        char hash[65];
 +        srv_secret_hash(id.secret, hash);
 +        SrvAccount *a = srv_account(id.code);
++        if (enforce_accounts) {
++            SrvAccount *other = srv_account_identity(bound_account);
++            if ((other && other->code != id.code) ||
++                (a && a->account_id[0] && strcmp(a->account_id, bound_account))) {
++                srv_call_end(c, ST_PERMISSION_DENIED, "MKWOM account belongs to another friend code");
++                return;
++            }
++        }
 +        if (a && !srv_secret_equal(a->secret, hash)) {
 +            srv_call_end(c, ST_PERMISSION_DENIED, "friend code belongs to another emulator");
 +            return;
@@ -13803,6 +14018,10 @@ index 0000000..721d8cb
 +            return;
 +        }
 +        code = a->code;
++        if (enforce_accounts && !a->account_id[0]) {
++            snprintf(a->account_id, sizeof a->account_id, "%s", bound_account);
++            srv_store_save_soon();
++        }
 +        a->seen = (int64_t)time(NULL);
 +        snprintf(a->tenant, sizeof a->tenant, "%s", tenant);
 +        srv_store_save_soon();
@@ -18366,7 +18585,7 @@ new file mode 100644
 index 0000000..0dbab70
 --- /dev/null
 +++ b/runtime/srv/srv_store.c
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,342 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships (srv_store.h). Small tables in memory, written whole to their files
 +// after a change: a new account or friendship at once (the server ends with the game, killed with it), the "last seen"
@@ -18487,8 +18706,9 @@ index 0000000..0dbab70
 +}
 +
 +static void load_account(char *line) {
-+    char *f[8];
-+    if (fields(line, f, 8) != 8) return;
++    char *f[9];
++    int cols = fields(line, f, 9);
++    if (cols != 8 && cols != 9) return;
 +    uint64_t code = strtoull(f[0], NULL, 10);
 +    if (!code || code > 999999999999ull || !hex64(f[1]) || srv_account(code)) return;
 +    SrvAccount *a = srv_account_add(code, f[1], atoi(f[2]) != 0);
@@ -18498,6 +18718,8 @@ index 0000000..0dbab70
 +    a->seen = strtoll(f[5], NULL, 10);
 +    unescape(a->tenant, sizeof a->tenant, f[6]);
 +    unescape(a->name, sizeof a->name, f[7]);
++    if (cols == 9 && strlen(f[8]) == 32 && strspn(f[8], "0123456789abcdef") == 32)
++        snprintf(a->account_id, sizeof a->account_id, "%s", f[8]);
 +}
 +
 +static void put_link(uint64_t a, uint64_t b, char kind, double since) {
@@ -18538,7 +18760,7 @@ index 0000000..0dbab70
 +        put_escaped(&t, a->tenant);
 +        tput(&t, "\t");
 +        put_escaped(&t, a->name);
-+        tput(&t, "\n");
++        tput(&t, "\t%s\n", a->account_id);
 +    }
 +    char path[1100];
 +    file_path(path, sizeof path, "accounts.tsv");
@@ -18583,6 +18805,13 @@ index 0000000..0dbab70
 +
 +void srv_store_tick(uint64_t now_ms) {
 +    if (dirty && now_ms - dirty_since >= 1000) save();
++}
++
++SrvAccount *srv_account_identity(const char *account_id) {
++    if (!account_id || !*account_id) return NULL;
++    for (int i = 0; i < nacct; i++)
++        if (!strcmp(accts[i]->account_id, account_id)) return accts[i];
++    return NULL;
 +}
 +
 +SrvAccount *srv_account(uint64_t code) {
@@ -18704,7 +18933,7 @@ new file mode 100644
 index 0000000..9488f83
 --- /dev/null
 +++ b/runtime/srv/srv_store.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,44 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships, kept in <data> (srv_data_dir) as small text files written whole and
 +// atomically: accounts.tsv (one account per friend code), links.tsv (who added whom, who declined whom), settings.txt
@@ -18715,6 +18944,7 @@ index 0000000..9488f83
 +typedef struct {
 +    uint64_t code;      // the friend code, 12 digits, never 0
 +    char secret[65];    // SHA-256 of the player's secret, lowercase hex
++    char account_id[33]; // The stable HTTPS MKWOM account bound to this friend code
 +    char name[64];      // the in-game name last seen (UTF-8), "" before any
 +    char tenant[64];    // the game the player last signed in to
 +    int64_t created, seen;
@@ -18726,6 +18956,7 @@ index 0000000..9488f83
 +void srv_store_tick(uint64_t now_ms);
 +
 +SrvAccount *srv_account(uint64_t code);  // NULL when unknown
++SrvAccount *srv_account_identity(const char *account_id); // existing friend code for one MKWOM user
 +SrvAccount *srv_account_add(uint64_t code, const char *secret_hash, int approved);   // written at once
 +
 +// a added b (a friend request from a until b adds a back), or a declined b. Times in seconds since 1970.
@@ -22463,7 +22694,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,996 @@
+@@ -0,0 +1,1065 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -22568,6 +22799,75 @@ index 0000000..b955046
 +        srv.kill()
 +        srv.wait()
 +
++
++def test_native_game_account_ticket_enforcement(tmp_path):
++    """A real TLS/HTTP2 native lobby rejects missing/forged tickets and enforces one MKWOM identity per code."""
++    import hashlib
++    import hmac
++
++    exe = os.environ.get("MKW_SRV_EXE")
++    if not exe:
++        pytest.skip("native lobby binary not supplied")
++    secure_port = 18453
++    key = "ab" * 32
++    data = tmp_path / "secure_lobby"
++    data.mkdir()
++    (data / "settings.txt").write_text("login_limit=64\n")
++    env = dict(os.environ, MKWOM_GAME_TICKET_KEY=key, MKWOM_ACCOUNT_ENFORCE="1")
++    errfile = tmp_path / "secure-server.log"
++    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(secure_port),
++            "--data", str(data), "--seconds", "25"]
++    with errfile.open("w") as output:
++        proc = subprocess.Popen(args, env=env, stderr=output)
++    try:
++        deadline = time.monotonic() + 18
++        while time.monotonic() < deadline:
++            if proc.poll() is not None:
++                pytest.fail("Secure lobby startup failed: " + errfile.read_text(errors="replace"))
++            try:
++                socket.create_connection(("127.0.0.1", secure_port), timeout=0.2).close()
++                break
++            except OSError:
++                time.sleep(0.1)
++        else:
++            pytest.fail("Secure lobby did not listen")
++        h = H2(data, port=secure_port)
++        code, secret, account = "987654321012", "a" * 32, "b" * 32
++        sign_in(h, 1, code, secret)
++        wait(h, lambda: 1 in h.ended)
++        assert 1 not in h.data, "anonymous client must not be admitted"
++
++        def ticket(friend_code, account_id=account, valid=True):
++            body = f"v1.{account_id}.{friend_code}.{int(time.time()) + 100}.{'c' * 16}"
++            signature = hmac.new(bytes.fromhex(key), body.encode(), hashlib.sha256).hexdigest()
++            if not valid:
++                signature = ("0" if signature[0] != "0" else "1") + signature[1:]
++            return body + "." + signature
++
++        def signed(sid, friend_code, account_id=account, valid=True):
++            identity = (f"droplet-online-v1;code={friend_code};secret={secret};friends=;"
++                        f"mkwom={ticket(friend_code, account_id, valid)}")
++            call(h, sid, SIGN_IN, pb(1, f"tenants/{TENANT}") + pb(3, pb(1, identity)))
++            wait(h, lambda: sid in h.ended)
++
++        signed(3, code, valid=False)
++        assert 3 not in h.data, "forged HMAC must be denied"
++        signed(5, code)
++        assert 5 in h.data, "valid signed account must be accepted"
++        signed(7, code, account_id="d" * 32)
++        assert 7 not in h.data, "the same code cannot be taken over by another account"
++        signed(9, "987654321013")
++        assert 9 not in h.data, "the same account cannot claim two codes"
++        time.sleep(1.2)
++        assert account in (data / "accounts.tsv").read_text(), "account-to-code binding must persist"
++        h.s.close()
++    finally:
++        proc.terminate()
++        try:
++            proc.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            proc.kill()
++            proc.wait()
 +
 +def test_srv_capacity_snapshot(server: Path) -> None:
 +    """The same process reports its aggregate capacity across independent lobbies."""

@@ -55,13 +55,12 @@ if destination == "release":
 
 1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
 2. Download **`MKWOM-Patcher-{tag}.exe`** below, and close the game.
-3. Run the patcher with your game folder:
-   `MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" update --channel release`
-4. Launch with:
-   `MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" play`
+3. Double-click the patcher. It will look for the official installation; if needed, click **Browse** and choose the folder containing `mkw.exe`.
+4. Click **Install & Play**. The patch downloads automatically, is verified and installed, and the game starts.
+5. Next time, double-click the same patcher and press **Play** to check for updates and launch.
 
-For an offline install, download **`MKWOM-Patch-{tag}-windows-x64.zip`** as well and run
-`MKWOM-Patcher-{tag}.exe --game "C:\\Games\\mkw-recomp" install MKWOM-Patch-{tag}-windows-x64.zip`.
+The optional `MKWOM-Patch-{tag}-windows-x64.zip` asset supports offline/advanced installations.
+No PowerShell or command prompt is required for normal installation.
 
 The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.
 The patcher checks hashes and preserves backups, saves and config for uninstall. Run the game through MKWOM for managed updates.

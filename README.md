@@ -15,25 +15,24 @@ Use [Releases](https://github.com/ItsJustLiliana/MKWOM/releases). Stable release
 installation, `mkwom-patch-windows-x64.zip` from the same candidate. Early builds are **pre-beta**, not a claim that
 a two-PC race has been verified. Install the official v0.1.15 package first and close the game.
 
-From PowerShell, replacing the example folder with the folder containing your runtime `mkw.exe`:
+## Graphical setup (Windows)
+
+Download `mkwom.exe` from a tested pre-beta candidate or `MKWOM-Patcher-vX.Y.Z.exe` from a stable Release,
+then **double-click** the application. The native Windows GUI looks for the official `mkw.exe`; if not found,
+choose the correct folder using **Browse**. No terminal or PowerShell is needed.
+
+For testing an unpublished version, choose **pre-beta** in Connection settings. For public stable versions use
+**release**. Click **Install & Play**: the launcher checks the configured channel, verifies the official runtime,
+downloads and applies the patch transactionally, then starts the game. On later visits simply click **Play**; it
+checks for new patches before launching. **Uninstall patch** restores verified original runtime files and retains saves.
+
+A working community endpoint is needed. Existing installations can use their saved endpoint; the operator may
+configure another endpoint in Connection settings. A public default endpoint will be provided by the release
+channel only after its server deployment is ready. The native graphical setup is currently Windows-only.
+For automated scripts, the same executable retains its command-line interface with arguments, e.g.:
 
 ```powershell
-.\mkwom.exe --game 'C:\Games\mkw-recomp' update --channel pre-beta
-.\mkwom.exe --game 'C:\Games\mkw-recomp' play
-```
-
-`play` checks the selected update channel before starting. Keep using MKWOM to start multiplayer. Existing users
-keep their saved `ONLINE_SERVER` endpoint; no public home address is committed or added to download metadata.
-If it is not configured, the operator can use `configure --endpoint HOST:PORT` once. Future VPS channels can supply
-their own community endpoint through the environment's `COMMUNITY_ENDPOINT` variable.
-
-```powershell
-# Optional local package installation, without downloading an update:
-.\mkwom.exe --game 'C:\Games\mkw-recomp' install .\mkwom-patch-windows-x64.zip
-# Explicitly launch an installed version without checking online:
-.\mkwom.exe --game 'C:\Games\mkw-recomp' play --no-update
-# Restore original runtime files; saves, profiles and mkw.ini remain untouched:
-.\mkwom.exe --game 'C:\Games\mkw-recomp' uninstall
+.\\mkwom.exe --game "C:\\Games\\mkw-recomp" update --channel pre-beta
 ```
 
 The managed runtime connects automatically and shows friends and connection status, without the server-address

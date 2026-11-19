@@ -13,8 +13,8 @@ from .installer import atom, read_json
 
 def _set_section_value(lines: list[str], section: str, key: str, value: str) -> None:
     """Edit one INI key without rewriting unrelated settings, comments or sections."""
-    header = re.compile(r"^\\s*\\[([^]\\r\\n]+)\\]\\s*(?:[;#].*)?$")
-    assignment = re.compile(r"^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=")
+    header = re.compile(r"^\s*\[([^]\r\n]+)\]\s*(?:[;#].*)?$")
+    assignment = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=")
     section_start = section_end = None
     for i, line in enumerate(lines):
         match = header.match(line)
@@ -53,9 +53,9 @@ def persist_online_settings(game: Path) -> None:
     path = game / "mkw.ini"
     original = path.read_bytes() if path.exists() else b""
     # Respect the game's existing Windows newline style and UTF-8 BOM.
-    bom = b"\\xef\\xbb\\xbf" if original.startswith(b"\\xef\\xbb\\xbf") else b""
+    bom = b"\xef\xbb\xbf" if original.startswith(b"\xef\xbb\xbf") else b""
     text = original[len(bom):].decode("utf-8")
-    newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+    newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
     _set_section_value(lines, "online", "ONLINE", "1")
     _set_section_value(lines, "online", "ONLINE_SERVER", address)

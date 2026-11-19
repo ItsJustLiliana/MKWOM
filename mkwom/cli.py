@@ -112,7 +112,8 @@ def launch(game: Path):
     # Refuse anonymous sessions for both GUI and CLI launch paths.
     # The native server must independently enforce auth before public release.
     from .accounts_client import AuthError, current_user
-    profile = current_user()
+    settings = read_json(game / ".mkwom/settings.json", {})
+    profile = current_user(settings.get("channel", "release"))
     if not profile or not profile.get("id"):
         raise AuthError("Log in to MKWOM before starting multiplayer.")
     game_closed()

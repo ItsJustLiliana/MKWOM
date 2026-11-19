@@ -44,7 +44,9 @@ jobs:
           gh release download "$RELEASE_TAG" --pattern mkwom-server-linux-x64.tar.gz --pattern SHA256SUMS --dir dist
           cd dist
           grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
-          # The deployer itself is reviewed source from main. Old immutable candidates\n          # must not reintroduce known health-check/rollback bugs.\n          cp ../tools/deploy_server.py deploy_server.py
+          # Use reviewed deployment code from main for older immutable releases.
+          cp ../tools/deploy_server.py ./deploy_server.py
+          test -s ./deploy_server.py
       - uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}

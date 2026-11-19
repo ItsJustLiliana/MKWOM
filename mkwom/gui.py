@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import queue
-import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 

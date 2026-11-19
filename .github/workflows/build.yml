@@ -1,7 +1,7 @@
 name: Build and test pre-beta
 on:
   push:
-    branches: [main, pre-beta, beta]
+    branches: [main, pre-beta]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -112,18 +112,3 @@ jobs:
         run: |
           gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease --latest=false \
             --title "$TAG" --notes "AI-assisted MKWOM candidate. Automated patch round-trip and server protocol checks passed. Real two-PC races still require operator testing."
-  deploy:
-    needs: publish
-    uses: ./.github/workflows/deploy.yml
-    with:
-      tag: ${{ needs.publish.outputs.tag }}
-      environment: ${{ needs.publish.outputs.channel }}
-    secrets: inherit
-  activate:
-    needs: [publish, deploy]
-    uses: ./.github/workflows/channel.yml
-    permissions:
-      contents: write
-    with:
-      tag: ${{ needs.publish.outputs.tag }}
-      channel: ${{ needs.publish.outputs.channel }}

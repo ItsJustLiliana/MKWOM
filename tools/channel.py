@@ -24,7 +24,7 @@ def main():
         endpoint(a.endpoint)
     info = json.loads(Path("dist/build-info.json").read_text())
     patch = Path("dist/mkwom-patch-windows-x64.zip")
-    result = {"format": 1, "channel": a.channel, "version": info["version"], "installer_version": __version__,
+    result = {"format": 1, "channel": a.channel, "tag": a.tag, "version": info["version"], "installer_version": __version__,
               "patch_url": f"https://github.com/ItsJustLiliana/MKWOM/releases/download/{a.tag}/{patch.name}",
               "sha256": hashlib.sha256(patch.read_bytes()).hexdigest(), "endpoint": a.endpoint or None}
     Path("dist/channel.json").write_text(json.dumps(result, indent=2))

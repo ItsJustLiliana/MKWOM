@@ -44,7 +44,8 @@ def rewrite(archive, mutate):
 
 
 @pytest.mark.parametrize("base,target", [(b"", b""), (b"", b"new"), (b"old", b""),
-    (bytes(range(256))*40, bytes(range(256))*40 + b"extra"), (b"A"*8192, b"A"*4096+b"B"*4096)])
+    (bytes(range(256))*40, bytes(range(256))*40 + b"extra"), (b"A"*8192, b"A"*4096+b"B"*4096)],
+    ids=["empty", "new", "delete", "append", "copy-and-literal"])
 def test_delta(base, target):
     assert delta.decode(base, delta.encode(base, target)) == target
 

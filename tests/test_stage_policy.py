@@ -55,3 +55,9 @@ def test_beta_and_release_promotion_restrict_source_stage():
 def test_channel_pointer_carries_immutable_tag():
     script = contents("tools/channel.py")
     assert '"tag": a.tag' in script
+
+
+def test_only_main_or_prebeta_builds_new_candidates():
+    script = contents("tools/release_metadata.py")
+    assert '("main", "pre-beta")' in script
+    assert 'channel = "pre-beta"' in script

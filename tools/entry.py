@@ -1,9 +1,9 @@
-"""Dual entry point: graphical setup by default; explicit CLI remains available for scripts."""
+"""PyInstaller entrypoint for setup GUI and silent native-triggered updates."""
 import sys
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        from mkwom.cli import main
-        raise SystemExit(main())
+    if len(sys.argv) >= 2 and sys.argv[1] == "--autostart":
+        from mkwom.autostart import main
+        raise SystemExit(main(sys.argv[2:]))
     from mkwom.gui import main
     main()

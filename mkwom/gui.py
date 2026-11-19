@@ -12,6 +12,7 @@ from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
 from .direct_launch import persist_online_settings
 from .session_storage import protect_for_game, remove_game_session
+from .autostart import install_helper
 
 SETUP_LAUNCHED = "MKWOM is up to date. Starting the game."
 
@@ -35,6 +36,7 @@ def install_and_play(folder: Path, channel: str) -> str:
     # Persist networking in recomp itself; subsequent direct mkw.exe starts
     # must not depend on process-only environment variables from this setup.
     persist_online_settings(folder)
+    install_helper(folder)
     launch(folder)
     return SETUP_LAUNCHED
 

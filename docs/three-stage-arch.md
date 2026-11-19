@@ -22,7 +22,7 @@ An immutable release artifact is **not rebuilt at every promotion**. It is copie
 Use **your personal Arch Linux box as the pre-beta deployment host**. Do not overwrite the currently running MKW server, StickStat, Flummi, or Brugmonitor. The bootstrap below creates a separate pre-beta service, folder, certificate authority and data store.
 
 ```bash
-sudo pacman -S --needed git github-cli python curl
+sudo pacman -S --needed git python curl
 mkdir -p ~/projects && cd ~/projects
 git clone https://github.com/ItsJustLiliana/MKWOM.git MKWOM
 cd MKWOM

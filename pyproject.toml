@@ -1,0 +1,25 @@
+[project]
+name = "mkwom"
+version = "0.1.0"
+description = "Version-checked MKWOM multiplayer patch installer and release tooling"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+mkwom = "mkwom.cli:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mkwom*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E9", "F"]

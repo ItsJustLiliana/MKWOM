@@ -1,0 +1,8 @@
+{
+  "upstream_repository": "adriadam10/mkw-recomp",
+  "upstream_tag": "v0.1.15",
+  "upstream_commit": "96677b6cec85ed05fb4667e03dac5c4d4c2a0bda",
+  "upstream_windows_url": "https://github.com/adriadam10/mkw-recomp/releases/download/v0.1.15/mkw-recomp-0.1.15-windows-x64.zip",
+  "upstream_windows_sha256": "0d08f5cf0318c75309738eca027202a1e56b93532bbb8b9212ce2e1e8e9bdd2a",
+  "multiplayer_origin": "ItsJustLiliana/mkw-recomp@7ff13d579d13ff3e5e6320fda5d8ff7982399338"
+}

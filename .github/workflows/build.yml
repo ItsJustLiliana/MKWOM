@@ -1,0 +1,124 @@
+name: Build and test pre-beta
+on:
+  push:
+    branches: [main, pre-beta, beta]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  tests:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pytest==8.4.2 ruff==0.14.14
+      - run: python -m pytest -q
+      - run: ruff check mkwom tools tests
+  client:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: sudo apt-get update && sudo apt-get install -y build-essential ninja-build cmake pkg-config
+      - run: python3 tools/prepare_source.py build/source
+      - uses: actions/cache@v6
+        with:
+          path: build/source/build/win
+          key: win-${{ hashFiles('compatibility.json', 'patches/multiplayer.patch') }}
+          restore-keys: win-
+      - name: Build and round-trip official runtime
+        env:
+          BUILD_VERSION: 0.1.0-${{ github.sha }}
+        run: uv run --project build/source python tools/build_client.py --source build/source --version "$BUILD_VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: client
+          path: dist/mkwom-patch-windows-x64.zip
+          if-no-files-found: error
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: sudo apt-get update && sudo apt-get install -y build-essential
+      - run: python3 tools/prepare_source.py build/source
+      - run: uv run --project build/source python build/source/tools/build/server.py --jobs 2
+      - name: Real server protocol regressions
+        run: MKW_SRV_EXE="$PWD/build/source/build/server/mkw-server" uv run --project build/source --group dev pytest build/source/tests/runtime/test_srv.py -n 0 -q
+      - name: Package server
+        env:
+          BUILD_VERSION: 0.1.0-${{ github.sha }}
+        run: python3 tools/server_release.py build/source "$BUILD_VERSION"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server
+          path: dist/mkwom-server-linux-x64.tar.gz
+          if-no-files-found: error
+  patcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e . pyinstaller==6.16.0
+      - run: python -m PyInstaller --onefile --name mkwom --paths . tools/entry.py
+      - run: ./dist/mkwom.exe --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: patcher
+          path: dist/mkwom.exe
+          if-no-files-found: error
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: [tests, client, server, patcher]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      channel: ${{ steps.meta.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Build metadata and checksums
+        id: meta
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 tools/release_metadata.py
+      - name: Publish tested candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "$TAG" --notes "AI-assisted MKWOM candidate. Automated patch round-trip and server protocol checks passed. Real two-PC races still require operator testing."
+  deploy:
+    needs: publish
+    uses: ./.github/workflows/deploy.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+      environment: ${{ needs.publish.outputs.channel }}
+    secrets: inherit
+  activate:
+    needs: [publish, deploy]
+    uses: ./.github/workflows/channel.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+      channel: ${{ needs.publish.outputs.channel }}

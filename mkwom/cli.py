@@ -1,0 +1,160 @@
+"""MKWOM installer/updater. Run python -m mkwom.cli --help, or the packaged mkwom.exe."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import urllib.request
+from urllib.parse import urlsplit
+
+from . import __version__
+from .delta import sha
+from .installer import install, uninstall, read_json, json_write
+
+REPO = "ItsJustLiliana/MKWOM"
+CHANNELS = ("pre-beta", "beta", "release")
+
+
+def download(url: str, limit: int) -> bytes:
+    u = urlsplit(url)
+    if u.scheme != "https" or u.hostname not in ("api.github.com", "github.com"):
+        raise ValueError("updates must come from GitHub HTTPS")
+    if u.hostname == "github.com" and not u.path.startswith(f"/{REPO}/releases/download/"):
+        raise ValueError("unexpected download repository")
+    if u.hostname == "api.github.com" and not u.path.startswith(f"/repos/{REPO}/releases/"):
+        raise ValueError("unexpected API repository")
+    request = urllib.request.Request(url, headers={"User-Agent": f"MKWOM/{__version__}"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("update exceeds size limit")
+    return data
+
+
+def endpoint(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,150}:[0-9]{1,5}", value):
+        raise ValueError("endpoint must be IPv4-or-hostname:port")
+    host, port = value.rsplit(":", 1)
+    if not 1 <= int(port) <= 65534 or "nintendo" in host.lower():
+        raise ValueError("invalid endpoint")
+    return value
+
+
+def ini_values(path: Path) -> dict:
+    values = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if "=" in line and not line.startswith(("#", ";")):
+                k, v = line.split("=", 1)
+                values[k.strip().upper().removeprefix("MKW_")] = v.strip().strip('"')
+    return values
+
+
+def update(game: Path, channel: str):
+    release = json.loads(download(f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
+    assets = [a for a in release["assets"] if a["name"] == "channel.json"]
+    if len(assets) != 1:
+        raise ValueError("channel is not published yet")
+    manifest = json.loads(download(assets[0]["browser_download_url"], 65536))
+    if manifest.get("format") != 1 or manifest.get("channel") != channel:
+        raise ValueError("invalid channel manifest")
+    if manifest.get("installer_version") != __version__:
+        raise ValueError("a new patcher is required; download it from the repository Releases page")
+    old = read_json(game / ".mkwom/installed.json", {})
+    if old.get("version") == manifest["version"]:
+        print("MKWOM is up to date.")
+    else:
+        blob = download(manifest["patch_url"], 256 * 1024 * 1024)
+        if sha(blob) != manifest["sha256"]:
+            raise ValueError("download checksum mismatch")
+        with tempfile.TemporaryDirectory(prefix="mkwom-") as directory:
+            package = Path(directory) / "patch.zip"
+            package.write_bytes(blob)
+            # Verify version before allowing the installer to touch any files.
+            import zipfile
+            with zipfile.ZipFile(package) as z:
+                if json.loads(z.read("manifest.json"))["version"] != manifest["version"]:
+                    raise ValueError("channel/package version mismatch")
+            install(game, package)
+        print("MKWOM patch updated.")
+    settings = read_json(game / ".mkwom/settings.json", {})
+    settings["channel"] = channel
+    # Channel endpoint is controlled by the channel publisher; current setup can keep its saved endpoint.
+    if manifest.get("endpoint"):
+        settings["endpoint"] = endpoint(manifest["endpoint"])
+    json_write(game / ".mkwom/settings.json", settings)
+
+
+def launch(game: Path):
+    if not read_json(game / ".mkwom/installed.json"):
+        raise ValueError("install the MKWOM patch first")
+    settings = read_json(game / ".mkwom/settings.json", {})
+    ini = ini_values(game / "mkw.ini")
+    data = Path(ini.get("GAME_DIR") or str(game))
+    if not data.is_absolute():
+        data = game / data
+    active = ini_values(data / "mkw.ini")
+    address = settings.get("endpoint") or active.get("ONLINE_SERVER")
+    if not address:
+        raise ValueError("no community endpoint configured; operator must configure this channel first")
+    env = dict(os.environ, MKW_ONLINE="1", MKW_ONLINE_SERVER=endpoint(address), MKW_SERVER_HOST="0",
+               MKWOM_MANAGED="1", MKW_UPDATE_CHECK="0")
+    # The wrapper owns patch updates; the upstream in-game updater would replace the patched runtime.
+    subprocess.Popen([str(game / "mkw.exe"), "--launcher"], cwd=game, env=env)
+    print("Started MKWOM.")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="MKWOM patch manager for supported Windows recomp builds")
+    p.add_argument("--game", type=Path, help="runtime folder containing mkw.exe")
+    sub = p.add_subparsers(dest="command", required=True)
+    local = sub.add_parser("install", help="install a downloaded patch")
+    local.add_argument("package", type=Path)
+    for name in ("update", "play"):
+        cmd = sub.add_parser(name)
+        cmd.add_argument("--channel", choices=CHANNELS)
+        if name == "play":
+            cmd.add_argument("--no-update", action="store_true", help="explicitly use the installed patch")
+    conf = sub.add_parser("configure", help="operator setup for the current private configuration")
+    conf.add_argument("--endpoint", type=endpoint, required=True)
+    sub.add_parser("uninstall")
+    sub.add_parser("status")
+    a = p.parse_args(argv)
+    try:
+        if not a.game:
+            raise ValueError("use --game with the runtime folder containing mkw.exe")
+        game = a.game.resolve()
+        if not (game / "mkw.exe").is_file():
+            raise ValueError("runtime folder does not contain mkw.exe")
+        settings = read_json(game / ".mkwom/settings.json", {})
+        if a.command == "install":
+            install(game, a.package)
+            print("Patch installed. Start through MKWOM; Set up again if the launcher requests it.")
+        elif a.command == "uninstall":
+            uninstall(game)
+            print("Original runtime restored; saves, profiles and INI were preserved.")
+        elif a.command == "configure":
+            settings["endpoint"] = a.endpoint
+            json_write(game / ".mkwom/settings.json", settings)
+            print("Local endpoint configured.")
+        elif a.command == "status":
+            state = read_json(game / ".mkwom/installed.json", {})
+            print(json.dumps({"patch": state.get("version"), "upstream": state.get("upstream"),
+                              "channel": settings.get("channel", "release")}, indent=2))
+        else:
+            channel = a.channel or settings.get("channel", "release")
+            if a.command == "update" or not a.no_update:
+                update(game, channel)
+            launch(game) if a.command == "play" else None
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
+        print(f"MKWOM: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

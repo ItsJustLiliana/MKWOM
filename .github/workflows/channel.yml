@@ -1,0 +1,28 @@
+name: Activate tested client channel
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: channel-${{ inputs.channel }}
+  cancel-in-progress: false
+jobs:
+  activate:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Point channel at verified immutable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ inputs.channel }}
+          COMMUNITY_ENDPOINT: ${{ vars.COMMUNITY_ENDPOINT }}
+        run: python3 tools/activate_channel.py

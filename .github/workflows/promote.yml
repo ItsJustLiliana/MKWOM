@@ -1,0 +1,51 @@
+name: Promote tested candidate
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Immutable pre-beta or beta release tag
+        required: true
+      destination:
+        type: choice
+        options: [beta, release]
+        required: true
+      release_version:
+        description: Version for a draft public Release (e.g. v0.1.0)
+        default: v0.1.0
+permissions:
+  contents: write
+concurrency:
+  group: promote-${{ inputs.destination }}
+  cancel-in-progress: false
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.destination }}
+    outputs:
+      tag: ${{ steps.promote.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: promote
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate }}
+          DESTINATION: ${{ inputs.destination }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: python3 tools/promote.py
+  deploy-beta:
+    if: inputs.destination == 'beta'
+    needs: promote
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+    with:
+      tag: ${{ needs.promote.outputs.tag }}
+      environment: beta
+    secrets: inherit
+  activate-beta:
+    if: inputs.destination == 'beta'
+    needs: [promote, deploy-beta]
+    uses: ./.github/workflows/channel.yml
+    with:
+      tag: ${{ needs.promote.outputs.tag }}
+      channel: beta

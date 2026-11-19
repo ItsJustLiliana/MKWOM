@@ -1,0 +1,42 @@
+name: Activate published Release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable vX.Y.Z tag (also use after publishing a workflow-created draft)
+        required: true
+permissions:
+  contents: write
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' || (github.event.release.prerelease == false && startsWith(github.event.release.tag_name, 'v'))
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(gh release view "$TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+  deploy:
+    needs: validate
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+    with:
+      tag: ${{ needs.validate.outputs.tag }}
+      environment: release
+    secrets: inherit
+  activate:
+    needs: [validate, deploy]
+    uses: ./.github/workflows/channel.yml
+    with:
+      tag: ${{ needs.validate.outputs.tag }}
+      channel: release

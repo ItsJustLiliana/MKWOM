@@ -1,0 +1,61 @@
+name: Deploy configured server
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      environment:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tested release tag
+        required: true
+      environment:
+        type: choice
+        options: [pre-beta, beta, release]
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Deployment not yet enabled
+        if: vars.AUTO_DEPLOY != 'true'
+        run: echo 'No production changes. Configure this environment and enable AUTO_DEPLOY when its isolated server is ready.'
+      - name: Download verified server
+        if: vars.AUTO_DEPLOY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --pattern mkwom-server-linux-x64.tar.gz --pattern deploy_server.py --pattern SHA256SUMS --dir dist
+          cd dist
+          grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
+          grep '  deploy_server.py$' SHA256SUMS | sha256sum --check --strict -
+      - uses: tailscale/github-action@v4
+        if: vars.AUTO_DEPLOY == 'true'
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+      - name: Deploy over administrator tailnet
+        if: vars.AUTO_DEPLOY == 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
+          LISTEN_HOST: ${{ vars.LISTEN_HOST }}
+          LOBBY_PORT: ${{ vars.LOBBY_PORT }}
+        run: |
+          python3 tools/remote_deploy.py

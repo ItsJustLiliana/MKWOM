@@ -137,7 +137,7 @@ class Launcher:
         self.channels = ttk.Combobox(line, values=CHANNELS, state="readonly",
                                      textvariable=self.channel, width=13)
         self.channels.grid(row=0, column=1, padx=(12, 0), sticky="w")
-        ttk.Label(line, text="Server (optional)").grid(row=1, column=0, sticky="w", pady=(12, 0))
+        ttk.Label(line, text="Custom server (blank = community)").grid(row=1, column=0, sticky="w", pady=(12, 0))
         self.server = ttk.Entry(line, textvariable=self.endpoint, width=35)
         self.server.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(12, 0))
         line.columnconfigure(1, weight=1)
@@ -197,7 +197,7 @@ class Launcher:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
             self.channel.set(settings.get("channel", "pre-beta"))
-            self.endpoint.set(settings.get("endpoint", ""))
+            self.endpoint.set(settings.get("endpoint", "") if settings.get("endpoint_mode") != "channel" else "")
             self.update_auth_buttons()
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
@@ -218,6 +218,10 @@ class Launcher:
         settings["channel"] = self.channel.get()
         if self.endpoint.get().strip():
             settings["endpoint"] = endpoint(self.endpoint.get().strip())
+            settings["endpoint_mode"] = "custom"
+        else:
+            settings["endpoint_mode"] = "channel"
+            settings.pop("endpoint", None)
         json_write(folder / ".mkwom" / "settings.json", settings)
 
     def save_server(self):

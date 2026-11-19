@@ -69,6 +69,14 @@ closed. Channel/account isolation and schemas matter: until separate per-channel
 use separate recomp installation folders for independent Beta and Release backends. Never reuse a live production
 account-store directory for Beta. For the exact promotion clicks, see [operations](docs/operations.md).
 
+## Temporary Arch Linux account-service pre-beta
+
+An **isolated** registration/login API can be installed now on the current Arch Linux server without
+altering the existing lobby, game profiles or other systemd services. Follow
+[Arch pre-beta account setup](docs/accounts.md). Its account database binds to localhost by default.
+The API **does not** yet enforce authorization in the native multiplayer server, so don't publish
+the login requirement as complete.
+
 ## Server and future VPS
 
 The server artifact is `mkwom-server-linux-x64.tar.gz`, built on Ubuntu 24.04 without any game files. The multiplayer

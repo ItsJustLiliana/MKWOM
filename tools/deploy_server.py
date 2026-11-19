@@ -55,8 +55,14 @@ def health(host: str, port: int, ca: Path):
         with context.wrap_socket(s, server_hostname="mkwom-health") as tls:
             if tls.selected_alpn_protocol() != "h2":
                 raise ValueError("server did not negotiate HTTP/2")
+    # The friends TLS listener is not an HTTP/2 endpoint. Reuse the trusted CA,
+    # but do not offer h2 ALPN: some friends listeners reject that offer.
+    friends_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    friends_context.check_hostname = False
+    friends_context.verify_mode = ssl.CERT_REQUIRED
+    friends_context.load_verify_locations(cadata=ca.read_bytes())
     with socket.create_connection((host, port + 1), timeout=3) as s:
-        with context.wrap_socket(s, server_hostname="mkwom-health"):
+        with friends_context.wrap_socket(s, server_hostname="mkwom-health"):
             pass
 
 

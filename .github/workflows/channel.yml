@@ -25,4 +25,5 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           CHANNEL: ${{ inputs.channel }}
           COMMUNITY_ENDPOINT: ${{ vars.COMMUNITY_ENDPOINT }}
+          AUTO_DEPLOY: ${{ vars.AUTO_DEPLOY }}
         run: python3 tools/activate_channel.py

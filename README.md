@@ -11,7 +11,7 @@ builds. New upstream support requires an updated source integration and tested r
 
 ## Download and play
 
-Use [Releases](https://github.com/ItsJustLiliana/MKWOM/releases). Download `mkwom.exe` and, for offline/local
+Use [Releases](https://github.com/ItsJustLiliana/MKWOM/releases). Stable releases with tags like `v0.1.0` provide versioned downloads `MKWOM-Patch-v0.1.0-windows-x64.zip` and `MKWOM-Patcher-v0.1.0.exe` alongside generic updater assets. Download `mkwom.exe` (or the versioned patcher) and, for offline/local
 installation, `mkwom-patch-windows-x64.zip` from the same candidate. Early builds are **pre-beta**, not a claim that
 a two-PC race has been verified. Install the official v0.1.15 package first and close the game.
 

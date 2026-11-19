@@ -4,6 +4,7 @@ This creates durable account identities; game-server enforcement and identity mi
 must be integrated before accounts can authorise online gameplay.
 """
 import hashlib
+import hmac
 import os
 from pathlib import Path
 import re
@@ -21,10 +22,15 @@ app = FastAPI(title="MKWOM Accounts", docs_url=None, redoc_url=None)
 hasher = PasswordHasher()
 DB_PATH = Path(os.environ.get("MKWOM_ACCOUNTS_DB", "accounts.sqlite3"))
 SESSION_LIFETIME = 60 * 60 * 24 * 30
+GAME_TICKET_LIFETIME = 120
 MAX_REQUESTS = 8
 WINDOW_SECONDS = 60
 _guard = threading.Lock()
 _attempts = {}
+
+
+class GameTicketRequest(BaseModel):
+    friend_code: str = Field(pattern=r"^[0-9]{12}$")
 
 
 class Credentials(BaseModel):
@@ -137,6 +143,29 @@ def me(token_hash: str = Depends(bearer)):
         if not found:
             raise HTTPException(401, "Session expired or revoked")
         return {"id": found[0], "username": found[1]}
+
+
+@app.post("/game-ticket")
+def game_ticket(body: GameTicketRequest, token_hash: str = Depends(bearer)):
+    """Issue a brief server-verifiable proof of account ownership for one friend code.
+
+    Shared key must be explicitly installed in BOTH the account API and native lobby
+    service on the operator's machine. Never expose it to the launcher or game.
+    """
+    configured = os.environ.get("MKWOM_GAME_TICKET_KEY", "")
+    if not re.fullmatch(r"[a-f0-9]{64}", configured):
+        raise HTTPException(503, "Game authentication is not configured")
+    with connect() as db:
+        found = db.execute("""SELECT users.id FROM sessions
+                JOIN users ON users.id=sessions.user_id
+                WHERE sessions.token_hash=? AND sessions.expires_at>?""",
+                           (token_hash, int(time.time()))).fetchone()
+    if not found:
+        raise HTTPException(401, "Session expired or revoked")
+    expiry = int(time.time()) + GAME_TICKET_LIFETIME
+    message = f"v1.{found[0]}.{body.friend_code}.{expiry}.{secrets.token_hex(8)}"
+    sig = hmac.new(bytes.fromhex(configured), message.encode("ascii"), hashlib.sha256).hexdigest()
+    return {"ticket": message + "." + sig, "expires_at": expiry}
 
 
 @app.post("/logout")

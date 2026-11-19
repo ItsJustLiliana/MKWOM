@@ -9,8 +9,14 @@ import subprocess
 
 candidate = os.environ["CANDIDATE_TAG"]
 destination = os.environ["DESTINATION"]
-if not re.fullmatch(r"(?:pre-beta|beta)-[0-9]+-[a-f0-9]{12}", candidate):
-    raise ValueError("select an immutable tested pre-beta/beta candidate tag")
+if destination == "beta":
+    required_source = "pre-beta"
+elif destination == "release":
+    required_source = "beta"
+else:
+    raise ValueError("destination must be beta or release")
+if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
+    raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
 Path("dist").mkdir(exist_ok=True)
 names = ["mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz", "mkwom.exe",
          "deploy_server.py", "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]

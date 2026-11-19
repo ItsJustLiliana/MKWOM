@@ -22694,7 +22694,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,996 @@
+@@ -0,0 +1,1065 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -22799,6 +22799,75 @@ index 0000000..b955046
 +        srv.kill()
 +        srv.wait()
 +
++
++def test_native_game_account_ticket_enforcement(tmp_path):
++    """A real TLS/HTTP2 native lobby rejects missing/forged tickets and enforces one MKWOM identity per code."""
++    import hashlib
++    import hmac
++
++    exe = os.environ.get("MKW_SRV_EXE")
++    if not exe:
++        pytest.skip("native lobby binary not supplied")
++    secure_port = 18453
++    key = "ab" * 32
++    data = tmp_path / "secure_lobby"
++    data.mkdir()
++    (data / "settings.txt").write_text("login_limit=64\n")
++    env = dict(os.environ, MKWOM_GAME_TICKET_KEY=key, MKWOM_ACCOUNT_ENFORCE="1")
++    errfile = tmp_path / "secure-server.log"
++    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(secure_port),
++            "--data", str(data), "--seconds", "25"]
++    with errfile.open("w") as output:
++        proc = subprocess.Popen(args, env=env, stderr=output)
++    try:
++        deadline = time.monotonic() + 18
++        while time.monotonic() < deadline:
++            if proc.poll() is not None:
++                pytest.fail("Secure lobby startup failed: " + errfile.read_text(errors="replace"))
++            try:
++                socket.create_connection(("127.0.0.1", secure_port), timeout=0.2).close()
++                break
++            except OSError:
++                time.sleep(0.1)
++        else:
++            pytest.fail("Secure lobby did not listen")
++        h = H2(data, port=secure_port)
++        code, secret, account = "987654321012", "a" * 32, "b" * 32
++        sign_in(h, 1, code, secret)
++        wait(h, lambda: 1 in h.ended)
++        assert 1 not in h.data, "anonymous client must not be admitted"
++
++        def ticket(friend_code, account_id=account, valid=True):
++            body = f"v1.{account_id}.{friend_code}.{int(time.time()) + 100}.{'c' * 16}"
++            signature = hmac.new(bytes.fromhex(key), body.encode(), hashlib.sha256).hexdigest()
++            if not valid:
++                signature = ("0" if signature[0] != "0" else "1") + signature[1:]
++            return body + "." + signature
++
++        def signed(sid, friend_code, account_id=account, valid=True):
++            identity = (f"droplet-online-v1;code={friend_code};secret={secret};friends=;"
++                        f"mkwom={ticket(friend_code, account_id, valid)}")
++            call(h, sid, SIGN_IN, pb(1, f"tenants/{TENANT}") + pb(3, pb(1, identity)))
++            wait(h, lambda: sid in h.ended)
++
++        signed(3, code, valid=False)
++        assert 3 not in h.data, "forged HMAC must be denied"
++        signed(5, code)
++        assert 5 in h.data, "valid signed account must be accepted"
++        signed(7, code, account_id="d" * 32)
++        assert 7 not in h.data, "the same code cannot be taken over by another account"
++        signed(9, "987654321013")
++        assert 9 not in h.data, "the same account cannot claim two codes"
++        time.sleep(1.2)
++        assert account in (data / "accounts.tsv").read_text(), "account-to-code binding must persist"
++        h.s.close()
++    finally:
++        proc.terminate()
++        try:
++            proc.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            proc.kill()
++            proc.wait()
 +
 +def test_srv_capacity_snapshot(server: Path) -> None:
 +    """The same process reports its aggregate capacity across independent lobbies."""

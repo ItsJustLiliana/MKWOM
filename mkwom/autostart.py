@@ -4,6 +4,7 @@ On later double-clicks, the patched native mkw.exe starts this helper and exits.
 The helper verifies account, transactionally updates the patch, then starts the
 game with MKWOM_MANAGED=1 to avoid recursion. It shows UI only on failure.
 """
+import ctypes
 import os
 from pathlib import Path
 import shutil
@@ -49,12 +50,33 @@ def update_and_launch(game: Path) -> None:
     launch(game)
 
 
+def _wait_for_original_game(pid: int) -> None:
+    """The original double-clicked game must exit before its EXE can be patched."""
+    if os.name != "nt" or not pid:
+        return
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+    kernel.OpenProcess.restype = ctypes.c_void_p
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+    kernel.WaitForSingleObject.restype = ctypes.c_ulong
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only
+    if handle:
+        try:
+            if kernel.WaitForSingleObject(handle, 10000) != 0:
+                raise OSError("The previous game process did not exit before updating.")
+        finally:
+            kernel.CloseHandle(handle)
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="MKWOM automatic game update and launch")
     parser.add_argument("--game", type=Path, required=True)
+    parser.add_argument("--parent-pid", type=int, default=0)
     args = parser.parse_args(argv)
     try:
+        _wait_for_original_game(args.parent_pid)
         update_and_launch(args.game)
     except (OSError, ValueError, RuntimeError) as error:
         # No PowerShell is required; display the actual problem to the player.

@@ -27,7 +27,8 @@ def test_invalid_stored_path_is_not_accepted(tmp_path, monkeypatch):
 
 def test_install_and_play_orders_update_before_launch(tmp_path):
     calls = []
-    with patch("mkwom.gui.update", side_effect=lambda path, channel: calls.append(("update", path, channel))), \
+    with patch("mkwom.gui.current_user", return_value={"id": "test-id"}), \
+         patch("mkwom.gui.update", side_effect=lambda path, channel: calls.append(("update", path, channel))), \
          patch("mkwom.gui.launch", side_effect=lambda path: calls.append(("launch", path))):
         install_and_play(tmp_path, "pre-beta")
     assert calls == [("update", tmp_path, "pre-beta"), ("launch", tmp_path)]

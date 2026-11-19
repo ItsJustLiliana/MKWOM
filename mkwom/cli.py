@@ -55,8 +55,10 @@ def ini_values(path: Path) -> dict:
     return values
 
 
-def update(game: Path, channel: str):
-    game_closed()
+def fetch_channel(channel: str) -> dict:
+    """Fetch a channel manifest without changing the installation."""
+    if channel not in CHANNELS:
+        raise ValueError("unsupported update channel")
     release = json.loads(download(f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
     assets = [a for a in release["assets"] if a["name"] == "channel.json"]
     if len(assets) != 1:
@@ -64,6 +66,21 @@ def update(game: Path, channel: str):
     manifest = json.loads(download(assets[0]["browser_download_url"], 65536))
     if manifest.get("format") != 1 or manifest.get("channel") != channel:
         raise ValueError("invalid channel manifest")
+    return manifest
+
+
+def update_status(game: Path, channel: str) -> dict:
+    """Check for updates without modifying or launching the game."""
+    manifest = fetch_channel(channel)
+    installed = read_json(game / ".mkwom/installed.json", {})
+    return {"installed": installed.get("version"), "available": manifest["version"],
+            "patcher_update": manifest.get("installer_version") != __version__,
+            "patch_update": installed.get("version") != manifest["version"], "channel": channel}
+
+
+def update(game: Path, channel: str):
+    game_closed()
+    manifest = fetch_channel(channel)
     if manifest.get("installer_version") != __version__:
         raise ValueError("a new patcher is required; download it from the repository Releases page")
     old = read_json(game / ".mkwom/installed.json", {})
@@ -92,6 +109,12 @@ def update(game: Path, channel: str):
 
 
 def launch(game: Path):
+    # Refuse anonymous sessions for both GUI and CLI launch paths.
+    # The native server must independently enforce auth before public release.
+    from .accounts_client import AuthError, current_user
+    profile = current_user()
+    if not profile or not profile.get("id"):
+        raise AuthError("Log in to MKWOM before starting multiplayer.")
     game_closed()
     installed = read_json(game / ".mkwom/installed.json")
     if not installed:

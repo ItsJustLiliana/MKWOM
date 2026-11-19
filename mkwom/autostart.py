@@ -13,6 +13,7 @@ import sys
 from .accounts_client import AuthError, current_user
 from .cli import launch, update
 from .installer import read_json
+from .direct_launch import persist_online_settings
 
 
 def install_helper(game: Path) -> None:
@@ -47,6 +48,7 @@ def update_and_launch(game: Path) -> None:
     # The transactional updater preserves saves, verifies the patch's hash and
     # refuses unsupported versions; this process does not hold mkw.exe open.
     update(game, channel)
+    persist_online_settings(game)
     launch(game)
 
 

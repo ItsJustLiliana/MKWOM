@@ -12,7 +12,7 @@ if (( $# != 1 )) || [[ ! "$1" =~ ^pre-beta-[0-9]+-[a-f0-9]{12}$ ]]; then
   echo "Usage: bash scripts/setup_arch_lobby_prebeta.sh pre-beta-RUNID-SHA12" >&2
   exit 2
 fi
-for tool in gh python3 sha256sum systemctl; do
+for tool in curl python3 sha256sum systemctl; do
   command -v "$tool" >/dev/null || { echo "Missing: $tool" >&2; exit 1; }
 done
 tag="$1"
@@ -38,9 +38,21 @@ fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-export GH_REPO="ItsJustLiliana/MKWOM"
-gh release view "$tag" --json isDraft,isPrerelease --jq '.isDraft == false and .isPrerelease == true' | grep -qx true
-gh release download "$tag" --dir "$tmp" --pattern mkwom-server-linux-x64.tar.gz --pattern SHA256SUMS
+api="https://api.github.com/repos/ItsJustLiliana/MKWOM/releases/tags/$tag"
+curl --fail --silent --show-error --location --retry 3 --max-time 45 \
+  -H "Accept: application/vnd.github+json" "$api" > "$tmp/release.json"
+python3 - "$tmp/release.json" "$tag" <<'PY'
+import json
+from pathlib import Path
+import sys
+release = json.loads(Path(sys.argv[1]).read_text())
+if release.get("tag_name") != sys.argv[2] or release.get("draft") or not release.get("prerelease"):
+    raise SystemExit("The selected candidate is not a published pre-beta release.")
+PY
+for name in mkwom-server-linux-x64.tar.gz SHA256SUMS; do
+  curl --fail --silent --show-error --location --retry 3 --max-time 180 \
+    "https://github.com/ItsJustLiliana/MKWOM/releases/download/$tag/$name" -o "$tmp/$name"
+done
 (
   cd "$tmp"
   grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -

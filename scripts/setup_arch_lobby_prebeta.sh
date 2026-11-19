@@ -131,5 +131,7 @@ with socket.create_connection((host, port), timeout=5) as raw:
 print("Lobby HTTPS/2 and preserved CA: OK")
 PY
 echo "Initialized $unit from immutable GitHub candidate $tag."
-echo "For GitHub deployment set environment pre-beta DEPLOY_ROOT=$root DEPLOY_UNIT=$unit LISTEN_HOST=127.0.0.1 LOBBY_PORT=$port"
+health_host="$bind"
+if [[ "$bind" == "0.0.0.0" || "$bind" == "::" ]]; then health_host="127.0.0.1"; fi
+echo "For GitHub deployment set environment pre-beta DEPLOY_ROOT=$root DEPLOY_UNIT=$unit LISTEN_HOST=$health_host LOBBY_PORT=$port"
 echo "Still required: route TCP and game UDP/STUN/TURN ports before other PCs can join."

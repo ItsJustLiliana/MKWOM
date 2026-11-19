@@ -65,7 +65,7 @@ class Launcher:
         self.events = queue.Queue()
         self.busy = False
         self.folder = tk.StringVar(value=str(detect_game() or ""))
-        self.channel = tk.StringVar(value="release")
+        self.channel = tk.StringVar(value="pre-beta")
         self.endpoint = tk.StringVar()
         self.status = tk.StringVar(value="Choose your game folder to get started.")
         self.details = tk.StringVar(value="")
@@ -196,7 +196,7 @@ class Launcher:
         try:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
-            self.channel.set(settings.get("channel", "release"))
+            self.channel.set(settings.get("channel", "pre-beta"))
             self.endpoint.set(settings.get("endpoint", ""))
             self.update_auth_buttons()
             version = installed_version(folder)

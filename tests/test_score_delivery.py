@@ -45,7 +45,7 @@ def setup(tmp_path, monkeypatch):
 def event(outbox, race, channel, uid, points):
     path = outbox / (race + ".json")
     path.write_text(json.dumps({"race_id": race, "channel": channel,
-                                "players": [{"account_id": uid, "position": 1, "points": points}]}))
+                                "game_mode": "versus", "players": [{"account_id": uid, "position": 1, "points": points}]}))
     return path
 
 

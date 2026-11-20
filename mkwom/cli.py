@@ -162,10 +162,12 @@ def main(argv=None):
             uninstall(game)
             print("Original runtime restored; saves, profiles and INI were preserved.")
         elif a.command == "configure":
-            settings["endpoint"] = a.endpoint
-            settings["endpoint_mode"] = "custom"
+            if a.endpoint != COMMUNITY_ENDPOINT:
+                raise ValueError("MKWOM only supports the official STRATO multiplayer server")
+            settings["endpoint"] = COMMUNITY_ENDPOINT
+            settings["endpoint_mode"] = "channel"
             json_write(game / ".mkwom/settings.json", settings)
-            print("Local endpoint configured.")
+            print("Official MKWOM STRATO server configured.")
         elif a.command == "status":
             state = read_json(game / ".mkwom/installed.json", {})
             print(json.dumps({"patch": state.get("version"), "upstream": state.get("upstream"),

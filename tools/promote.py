@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import tempfile
 
+from versioning import LEGACY_BETA, parsed_beta, parsed_stable, next_beta, next_stable, stable_for_beta
+
 candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
 if destination == "beta":
@@ -37,7 +39,8 @@ if not candidate and destination == "release":
         subprocess.run(["gh", "release", "download", "channel-beta", "--dir", directory,
                         "--pattern", "channel.json"], check=True)
         candidate = json.loads((Path(directory) / "channel.json").read_text())["tag"]
-if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
+if not ((destination == "beta" and re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}", candidate)) or
+        (destination == "release" and (parsed_beta(candidate) is not None or LEGACY_BETA.fullmatch(candidate)))):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
 # Pre-beta is a build queue, NOT a public client channel or running server.
 # A candidate is eligible for Beta only after the queue upload succeeded.
@@ -70,19 +73,24 @@ for name in names[:-1]:
 info = json.loads(Path("dist/build-info.json").read_text())
 if not re.fullmatch(r"[a-f0-9]{40}", info["source_sha"]):
     raise ValueError("invalid candidate commit")
-tag = (f"beta-{os.environ['GITHUB_RUN_ID']}-{info['source_sha'][:12]}" if destination == "beta"
-       else os.environ.get("RELEASE_VERSION", "").strip())
-if destination == "release" and not tag:
-    existing = json.loads(subprocess.check_output(
-        ["gh", "release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft"], text=True))
-    versions = [(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                for item in existing if not item.get("isPrerelease") and not item.get("isDraft")
-                if (m := re.fullmatch(r"v([0-9]+)\\.([0-9]+)\\.([0-9]+)", item.get("tagName", "")))]
-    major, minor, patch = max(versions, default=(0, 1, 0))
-    tag = f"v{major}.{minor}.{patch + 1}"
-if destination not in ("beta", "release") or (destination == "release" and
-        not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
-    raise ValueError("Release version must look like v0.1.0")
+# A single serialized promotion workflow allocates a new Beta prerelease number.
+# Read all release tags, including drafts, so a failed promotion does not reuse a tag.
+existing = json.loads(subprocess.check_output(
+    ["gh", "release", "list", "--limit", "1000", "--json", "tagName,isPrerelease,isDraft"], text=True))
+requested = os.environ.get("RELEASE_VERSION", "").strip()
+if destination == "beta":
+    tag = next_beta(existing)
+else:
+    expected = stable_for_beta(candidate)
+    if expected:
+        if requested and requested != expected:
+            raise ValueError(f"Approved Beta {candidate} must become {expected}; cannot rename its release train")
+        tag = expected
+    else:
+        # Existing legacy beta-<run>-<sha> tags remain promotable.
+        tag = requested or next_stable(existing)
+    if not parsed_stable(tag):
+        raise ValueError("Release version must look like v0.1.2")
 # Candidate/Beta releases retain complete verified provenance and deployment assets.
 # Public stable releases contain only user-facing Windows downloads. Release
 # channel verification is sourced from the already approved immutable Beta tag.
@@ -138,16 +146,16 @@ The patcher checks hashes and preserves backups, saves and config for uninstall.
 - This is an unofficial, AI-assisted project, not affiliated with Nintendo or the upstream developers.
 """
 else:
-    notes = (f"Beta candidate promoted unchanged from {candidate}. "
-             "Automated patch and server tests passed; two-PC multiplayer races require manual validation.")
+    notes = (f"## Beta {tag}\n\n"
+             f"Promoted from verified pre-beta candidate `{candidate}` without rebuilding.\n\n"
+             "Automated patch and server tests passed; two-PC multiplayer races require manual validation. "
+             "Internal server, checksum and provenance assets are for staged deployment and verification.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
         "--title", tag, "--notes", notes]
 args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
 if destination == "release":
-    # Rerun safely after a deployment failure, without duplicating v0.1.1.
-    listed = json.loads(subprocess.check_output(
-        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"], text=True))
-    matching = [r for r in listed if r["tagName"] == tag]
+    # Rerun safely after a deployment failure, without duplicating the stable tag.
+    matching = [r for r in existing if r["tagName"] == tag]
     if matching:
         found = json.loads(subprocess.check_output(
             ["gh", "release", "view", tag, "--json", "isDraft,isPrerelease,targetCommitish,body,assets"],

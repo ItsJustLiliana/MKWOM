@@ -10,7 +10,7 @@ on:
         options: [beta, release]
         required: true
       release_version:
-        description: Optional version (blank automatically increments latest stable patch)
+        description: Optional stable version; default uses the approved Beta's vX.Y.Z
         required: false
 permissions:
   contents: write

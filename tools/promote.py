@@ -83,8 +83,10 @@ if destination == "release" and not tag:
 if destination not in ("beta", "release") or (destination == "release" and
         not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
     raise ValueError("Release version must look like v0.1.0")
-# Preserve generic assets for the auto-updater, plus versioned downloads for humans.
-release_assets = [Path("dist") / n for n in names]
+# Candidate/Beta releases retain complete verified provenance and deployment assets.
+# Public stable releases contain only user-facing Windows downloads. Release
+# channel verification is sourced from the already approved immutable Beta tag.
+release_assets = [Path("dist") / n for n in names] if destination == "beta" else []
 if destination == "release":
     for source, filename in (
         ("mkwom-patch-windows-x64.zip", f"MKWOM-Patch-{tag}-windows-x64.zip"),
@@ -109,10 +111,10 @@ if destination == "release":
 1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
 2. Download **`MKWOM-Patcher-{tag}.exe`** below, and close the game.
 3. Double-click the patcher. It will look for the official installation; if needed, click **Browse** and choose the folder containing `mkw.exe`.
-4. Click **Install & Play**. The patch downloads automatically, is verified and installed, and the game starts.
-5. Next time, double-click the same patcher and press **Play** to check for updates and launch.
+4. Follow the installer steps. The patch downloads automatically, is verified and installed; the installer then closes.
+5. Next time, launch the patched `mkw.exe` from the game folder; MKWOM checks for updates and uses the saved login.
 
-The optional `MKWOM-Patch-{tag}-windows-x64.zip` asset supports offline/advanced installations.
+The optional `MKWOM-Patch-{tag}-windows-x64.zip` asset supports offline/advanced installations. Internal server files and build checksums remain in the approved Beta candidate, not the public stable Release.
 No PowerShell or command prompt is required for normal installation.
 
 The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.

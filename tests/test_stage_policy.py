@@ -94,3 +94,22 @@ def test_beta_and_release_do_not_restart_unchanged_server():
     deploy = contents("tools/deploy_server.py")
     assert 'if hashlib.sha256(exe.read_bytes()).hexdigest() == metadata["sha256"]:' in deploy
     assert 'print("Server binary unchanged; no restart required.")' in deploy
+
+
+def test_stable_release_shows_only_player_downloads():
+    script = contents("tools/promote.py")
+    assert 'release_assets = [Path("dist") / n for n in names] if destination == "beta" else []' in script
+    assert 'MKWOM-Patcher-{tag}.exe' in script
+    assert 'MKWOM-Patch-{tag}-windows-x64.zip' in script
+
+
+def test_release_channel_verifies_public_patch_from_approved_beta():
+    workflow = contents(".github/workflows/promote.yml")
+    assert "source_tag: ${{ needs.promote.outputs.candidate }}" in workflow
+    assert "source_tag:" in contents(".github/workflows/channel.yml")
+    activation = contents("tools/activate_channel.py")
+    assert 'source_tag = os.environ.get("SOURCE_TAG", "").strip() if channel == "release" else tag' in activation
+    assert "stable ZIP differs from approved Beta artifact" in activation
+    assert 'args.extend(["--patch-asset", public_asset])' in activation
+    channel = contents("tools/channel.py")
+    assert "a.patch_asset" in channel

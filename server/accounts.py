@@ -44,6 +44,7 @@ class RaceResult(BaseModel):
     # Server-authoritative event; client-supplied scores must never be accepted.
     channel: str = Field(pattern=r"^(beta|release)$")
     race_id: str = Field(pattern=r"^[A-Za-z0-9_-]{12,128}$")
+    game_mode: str = Field(pattern=r"^(versus|knockout)$")
     players: list[RacePlayer] = Field(min_length=1, max_length=32)
 
 
@@ -76,12 +77,14 @@ def connect():
     connection.execute("""CREATE TABLE IF NOT EXISTS race_results (
         channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
         race_id TEXT NOT NULL,
+        game_mode TEXT NOT NULL CHECK(game_mode IN ('versus','knockout')),
         payload_hash TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         PRIMARY KEY(channel, race_id))""")
     connection.execute("""CREATE TABLE IF NOT EXISTS race_scores (
         channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
         race_id TEXT NOT NULL,
+        game_mode TEXT NOT NULL CHECK(game_mode IN ('versus','knockout')),
         user_id TEXT NOT NULL REFERENCES users(id),
         position INTEGER NOT NULL,
         points INTEGER NOT NULL,
@@ -237,7 +240,7 @@ def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default
     if len({player.position for player in body.players}) != len(body.players):
         raise HTTPException(422, "Duplicate finishing position")
     canonical = sorted((p.account_id, p.position, p.points) for p in body.players)
-    encoded = repr(canonical).encode("ascii")
+    encoded = repr((body.game_mode, canonical)).encode("ascii")
     digest = hashlib.sha256(encoded).hexdigest()
     with connect() as db:
         # Acquire write lock before existence check to serialize competing servers.
@@ -254,19 +257,21 @@ def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default
             [p[0] for p in canonical])}
         if len(accounts) != len(canonical):
             raise HTTPException(422, "Unknown account in race result")
-        db.execute("INSERT INTO race_results(channel,race_id,payload_hash,created_at) VALUES (?,?,?,?)",
-                   (body.channel, body.race_id, digest, int(time.time())))
+        db.execute("INSERT INTO race_results(channel,race_id,game_mode,payload_hash,created_at) VALUES (?,?,?,?,?)",
+                   (body.channel, body.race_id, body.game_mode, digest, int(time.time())))
         db.executemany(
-            "INSERT INTO race_scores(channel,race_id,user_id,position,points) VALUES (?,?,?,?,?)",
-            [(body.channel, body.race_id, uid, pos, pts) for uid, pos, pts in canonical])
+            "INSERT INTO race_scores(channel,race_id,game_mode,user_id,position,points) VALUES (?,?,?,?,?,?)",
+            [(body.channel, body.race_id, body.game_mode, uid, pos, pts) for uid, pos, pts in canonical])
     return {"accepted": True, "duplicate": False}
 
 
 @app.get("/scores")
-def account_scores(channel: str, token_hash: str = Depends(bearer)):
+def account_scores(channel: str, game_mode: str | None = None, token_hash: str = Depends(bearer)):
     """Read the calling account's history for exactly one approved channel."""
     if channel not in ("beta", "release"):
         raise HTTPException(422, "Channel must be beta or release")
+    if game_mode is not None and game_mode not in ("versus", "knockout"):
+        raise HTTPException(422, "Unknown game mode")
     with connect() as db:
         found = db.execute(
             "SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?",
@@ -274,14 +279,13 @@ def account_scores(channel: str, token_hash: str = Depends(bearer)):
         if not found:
             raise HTTPException(401, "Session expired or revoked")
         user_id = found[0]
+        where = "user_id=? AND channel=?" + (" AND game_mode=?" if game_mode else "")
+        args = (user_id, channel, game_mode) if game_mode else (user_id, channel)
         score = db.execute(
-            "SELECT COALESCE(SUM(points),0),COUNT(*) FROM race_scores WHERE user_id=? AND channel=?",
-            (user_id, channel)).fetchone()
+            "SELECT COALESCE(SUM(points),0),COUNT(*) FROM race_scores WHERE " + where, args).fetchone()
         history = db.execute(
-            """SELECT race_id,position,points FROM race_scores
-               WHERE user_id=? AND channel=? ORDER BY rowid DESC LIMIT 50""",
-            (user_id, channel)).fetchall()
-    return {"channel": channel, "account_id": user_id, "total_points": score[0],
+            "SELECT race_id,game_mode,position,points FROM race_scores WHERE " + where + " ORDER BY rowid DESC LIMIT 50", args).fetchall()
+    return {"channel": channel, "game_mode": game_mode, "account_id": user_id, "total_points": score[0],
             "races": score[1], "history": [
-                {"race_id": race, "position": position, "points": points}
-                for race, position, points in history]}
+                {"race_id": race, "game_mode": mode, "position": position, "points": points}
+                for race, mode, position, points in history]}

@@ -63,6 +63,6 @@ def test_refuses_symlink_candidate(tmp_path):
 def test_workflow_only_cleans_after_activation():
     workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/promote.yml").read_text()
     assert "cleanup-promoted-beta:" in workflow
-    section = workflow.split("  cleanup-promoted-beta:", 1)[1].split("\n  ", 1)[0]
+    section = workflow.split("  cleanup-promoted-beta:", 1)[1].split("\n  deploy-release:", 1)[0]
     assert "needs: [promote, activate-beta]" in section
     assert "tools/cleanup_strato_candidate.py" in section

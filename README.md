@@ -46,19 +46,18 @@ passed to the child process. The built-in upstream updater is disabled only for 
 MKWOM owns updates to the patched runtime. Uninstall before independently upgrading the underlying recomp.
 The patcher itself requests a fresh download if its own required version changes; patch updates are automatic.
 
-## Three-stage manual release pipeline
+## STRATO build queue and approval pipeline
 
-**All server and client channel activations are manual:**
+**Every successful push to `main` automatically builds and queues a pre-beta candidate on STRATO.**
+This is a queue of verified artifacts, not a public update channel or second active server:
 
-1. Code on `main` builds and tests a new immutable **pre-beta candidate**. Nothing is deployed automatically.
-2. Click **Actions > Activate pre-beta on STRATO (manual)**, select that candidate and verify the pre-beta server.
-3. When satisfied, click **Actions > Promote tested candidate > beta**. Only the **currently activated pre-beta** candidate can advance. After deployment and health checks, Beta's client channel is updated.
-4. After Beta testing, click **Promote tested candidate > release** using the **currently activated Beta** tag. This creates a **draft** stable GitHub Release; it does not deploy.
-5. Edit and publish the stable GitHub Release, then **click Actions > Activate published Release**. This is the separate manual Release deployment/activation step.
+1. GitHub Actions builds/tests the Windows patch, patcher and Linux server, publishes a `pre-beta-...` candidate, and stages its checked server archive in the STRATO VPS's `candidates/` folder.
+2. When you approve that candidate, click **Actions → Promote queued build to Beta or approved Beta to Release**, choose **beta**, and enter the queued tag. Only this button deploys the candidate to the live STRATO lobby. Health checks must succeed before `channel-beta` moves.
+3. After testing Beta, click the **same** button with **release**, the active `beta-...` tag, and a `vX.Y.Z` version. The exact tested artifacts are published to Release and `channel-release` is updated without a second deployment.
 
-Promotion copies tested binaries exactly (SHA-256 verified), never silently rebuilds or skips stages. A failed deployment leaves the prior channel unchanged. Account stores are separate and never copied across environments.
+Pre-beta has **no published client channel**. Beta and Release are the only public update channels. This single VPS has one active game backend; promoting to Beta therefore changes that backend for any connected clients. A truly isolated Beta game backend would require separate UDP/TURN routing and account stores.
 
-**Current host:** STRATO Ubuntu 24.04 VPS. The Arch lobby and account tunnel are legacy only. See [STRATO migration and deployment](docs/strato-migration.md) and [operator instructions](docs/operations.md). Three concurrent channels require isolated networking/UDP/TURN and separate account stores.
+Operator setup for the automatic upload and manual promotion: [STRATO pipeline](docs/pipeline-strato.md). Secret SSH credentials stay in GitHub environments, never in Git. Missing credentials fail closed.
 
 ## STRATO deployment (official)
 

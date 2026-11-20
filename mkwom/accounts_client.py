@@ -10,7 +10,7 @@ import keyring
 
 SERVICE = "MKWOM Online Account"
 USERNAME_KEY = "access-token"
-PREBETA_ACCOUNTS_URL = "https://mkwom.liliananuzohra.com"
+ACCOUNTS_URL = "https://mkwom-api.liliananuzohra.com"
 
 
 class AuthError(ValueError):
@@ -24,7 +24,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def api_base(channel: str = "pre-beta") -> str:
     configured = os.environ.get("MKWOM_ACCOUNTS_URL", "").strip()
-    base = (configured or (PREBETA_ACCOUNTS_URL if channel == "pre-beta" else "")).rstrip("/")
+    base = (configured or ACCOUNTS_URL).rstrip("/")
     if not base:
         raise AuthError("Accounts will be available after the secure community server is configured.")
     address = urlsplit(base)

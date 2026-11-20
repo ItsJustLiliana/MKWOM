@@ -25,3 +25,20 @@ This PR adds an actual **TCP pass-through routing primitive**, not a production-
 **No commands to run yet.** This implementation remains disconnected from the production server so that normal releases keep their proven stop/backup/restore behavior. Do not change firewall ports, unit names, SSH secrets or `AUTO_DEPLOY` to experiment with dual writers. The new test gateway listens only when tests explicitly instantiate it.
 
 When dependencies are implemented and reviewed, a separate opt-in production cutover with rollback and real multiplayer tests will be required. Until then, schedule changed-server-binary promotions outside active races.
+
+## Experimental UDP routing primitive added
+
+`tools/rolling_udp_gateway.py` now provides local-only tested transport routing
+for five UDP front-door ports. New UDP client endpoints use the new generation,
+existing `(public-port,client-IP,client-UDP-port)` tuples continue using the old
+backend until its absolute 3600-second cutoff. The native STUN and NAT-check
+replies reflect the **original public client IP/port** rather than the gateway's
+backend socket. An upper bound on active flows prevents unbounded memory growth.
+
+**Explicit limitations:** A new source port after NAT rebinding is treated as a
+new client. There is currently no per-lobby signed session ID carried by native
+UDP STUN that would safely recover that affinity. TURN relay allocations and
+the coturn relay-port range are not implemented or verified here. The gateway
+is not wired to STRATO, and no production cutover is enabled. Full
+two-client NAT/TURN testing and authenticated native race-finish handoff are
+mandatory before activation.

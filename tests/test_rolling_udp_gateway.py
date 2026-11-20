@@ -150,7 +150,12 @@ def test_parallel_packets_from_one_player_reuse_single_udp_flow():
         port = backend.get_extra_info("sockname")[1]
         gateway = RollingUDPGateway(UDPGeneration("old", (("127.0.0.1", port),) * 5))
         try:
-            await gateway.start("127.0.0.1", (0, 0, 0, 0, 0))
+            ports = []
+            for _ in range(5):
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                    sock.bind(("127.0.0.1", 0))
+                    ports.append(sock.getsockname()[1])
+            await gateway.start("127.0.0.1", tuple(ports))
             client = ("127.0.0.1", 32111)
             await asyncio.gather(*(gateway._forward(0, b"packet", client) for _ in range(30)))
             assert len(gateway.flows) == 1

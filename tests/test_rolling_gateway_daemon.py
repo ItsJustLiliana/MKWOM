@@ -206,3 +206,29 @@ def test_scored_channels_require_both_generation_delivery_workers(tmp_path, monk
     assert calls == [
         ["systemctl", "--user", "is-active", "--quiet", "mkw-score-old.service"],
         ["systemctl", "--user", "is-active", "--quiet", "mkw-score-new.service"]]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Pinned TLS deployment probe uses POSIX fcntl")
+def test_three_unhealthy_probes_automatically_rollback_new_generation(tmp_path, monkeypatch):
+    async def scenario():
+        from tools import deploy_server
+        service = RollingGatewayService(config(tmp_path))
+        service.controller = FakeController(service)
+        async def healthy(_):
+            return None
+        monkeypatch.setattr(service, "_health", healthy)
+        await service.switch("new")
+        assert service.rollback_target == "old"
+        def unhealthy(*_args):
+            raise OSError("new server crashed")
+        monkeypatch.setattr(deploy_server, "health", unhealthy)
+        for _ in range(2):
+            await service._check_live_health()
+            assert service.tcp.current.name == "new"
+        await service._check_live_health()
+        assert service.tcp.current.name == service.udp.current.name == "old"
+        assert service.rollback_target is None
+        assert json.loads((tmp_path / "gateway-state.json").read_text())["current"] == "old"
+        assert not (tmp_path / "old/server/drain").exists()
+        assert (tmp_path / "new/server/drain").exists()
+    asyncio.run(scenario())

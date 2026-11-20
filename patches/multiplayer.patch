@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1015 @@
+@@ -0,0 +1,1019 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9685,8 +9685,12 @@ index 0000000..18cc1ef
 +    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom-api.liliananuzohra.com", 443, 0) : NULL;
 +    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
 +                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
-+    char body[96];
-+    int body_n = snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
++    char body[128];
++    // The installed DPAPI session carries the chosen channel.
++    const char *ticket_channel = offset == 5 ? "beta" : offset == 8 ? "release" : NULL;
++    int body_n = ticket_channel
++        ? snprintf(body, sizeof body, "{\"friend_code\":\"%s\",\"channel\":\"%s\"}", code, ticket_channel)
++        : snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
 +    wchar_t headers[256];
 +    swprintf(headers, sizeof headers / sizeof *headers,
 +             L"Content-Type: application/json\r\nAuthorization: Bearer %hs\r\n", access);
@@ -9709,8 +9713,8 @@ index 0000000..18cc1ef
 +    const char *q = strchr(p, '"');
 +    if (!q || q - p < 100 || (size_t)(q - p) >= cap) goto close;
 +    for (const char *x = p; x < q; x++)
-+        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'f') ||
-+              *x == 'v' || *x == '.')) goto close;
++        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'z') ||
++              *x == '.')) goto close;
 +    memcpy(ticket, p, (size_t)(q - p));
 +    ticket[q - p] = 0;
 +    ok = 1;
@@ -13555,7 +13559,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,518 @@
+@@ -0,0 +1,533 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13888,23 +13892,38 @@ index 0000000..721d8cb
 +    if (!ticket || strlen(ticket) >= 256) return 0;
 +    char copy[256];
 +    snprintf(copy, sizeof copy, "%s", ticket);
-+    char *part[6] = {copy};
-+    for (int i = 1; i < 6; i++) {
++    int scoped = !strncmp(ticket, "v2.", 3);
++    int fields = scoped ? 7 : 6;
++    int code_idx = scoped ? 3 : 2, expiry_idx = scoped ? 4 : 3;
++    int nonce_idx = scoped ? 5 : 4, sig_idx = scoped ? 6 : 5;
++    char *part[7] = {copy};
++    for (int i = 1; i < fields; i++) {
 +        char *dot = strchr(part[i - 1], '.');
 +        if (!dot) return 0;
 +        *dot = 0;
 +        part[i] = dot + 1;
 +    }
-+    if (strchr(part[5], '.') || strcmp(part[0], "v1") ||
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (scoped) {
++        if (strcmp(part[0], "v2") || (strcmp(part[2], "beta") && strcmp(part[2], "release"))) return 0;
++        if (channel && *channel && strcmp(part[2], channel)) return 0;
++    } else {
++        if (strcmp(part[0], "v1") || (channel && *channel)) return 0;
++    }
++    if (strchr(part[sig_idx], '.') ||
 +        strlen(part[1]) != 32 || strspn(part[1], "0123456789abcdef") != 32 ||
-+        strlen(part[2]) != 12 || strspn(part[2], "0123456789") != 12 ||
-+        strlen(part[4]) != 16 || strspn(part[4], "0123456789abcdef") != 16 ||
-+        strlen(part[5]) != 64 || strspn(part[5], "0123456789abcdef") != 64) return 0;
++        strlen(part[code_idx]) != 12 ||
++        strspn(part[code_idx], "0123456789") != 12 ||
++        strlen(part[nonce_idx]) != 16 ||
++        strspn(part[nonce_idx], "0123456789abcdef") != 16 ||
++        strlen(part[sig_idx]) != 64 ||
++        strspn(part[sig_idx], "0123456789abcdef") != 64) return 0;
 +    char expected[16];
 +    snprintf(expected, sizeof expected, "%012llu", (unsigned long long)friend_code);
-+    if (strcmp(part[2], expected)) return 0;
-+    if (!*part[3] || strlen(part[3]) > 12 || strspn(part[3], "0123456789") != strlen(part[3])) return 0;
-+    int64_t expiry = strtoll(part[3], NULL, 10), now = (int64_t)time(NULL);
++    if (strcmp(part[code_idx], expected)) return 0;
++    if (!*part[expiry_idx] || strlen(part[expiry_idx]) > 12 ||
++        strspn(part[expiry_idx], "0123456789") != strlen(part[expiry_idx])) return 0;
++    int64_t expiry = strtoll(part[expiry_idx], NULL, 10), now = (int64_t)time(NULL);
 +    if (expiry <= now || expiry > now + 150) return 0;
 +    uint8_t key[32], mac[32];
 +    for (int i = 0; i < 32; i++) {
@@ -13930,8 +13949,8 @@ index 0000000..721d8cb
 +    for (int i = 0; i < 32; i++) {
 +        char hex[3];
 +        snprintf(hex, sizeof hex, "%02x", mac[i]);
-+        diff |= (unsigned)(hex[0] ^ part[5][2 * i]);
-+        diff |= (unsigned)(hex[1] ^ part[5][2 * i + 1]);
++        diff |= (unsigned)(hex[0] ^ part[sig_idx][2 * i]);
++        diff |= (unsigned)(hex[1] ^ part[sig_idx][2 * i + 1]);
 +    }
 +    memset(mac, 0, sizeof mac);
 +    if (diff) return 0;

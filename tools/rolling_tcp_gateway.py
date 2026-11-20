@@ -122,6 +122,28 @@ class RollingTCPGateway:
             previous.deadline = self.clock() + self.drain_seconds
             return previous
 
+    async def rollback(self, target_name: str) -> Generation:
+        """Return NEW TCP streams to an existing, unretired generation.
+
+        Existing streams remain pinned where accepted. This is a routing
+        rollback, not a reconnect or a guarantee of race completion.
+        """
+        async with self._lock:
+            target = self.generations.get(target_name)
+            if target is None or target is self.current:
+                raise ValueError("rollback target must be a prior live generation")
+            if target.deadline is not None and self.clock() >= target.deadline:
+                raise ValueError("rollback generation already expired")
+            for endpoint in (target.lobby, target.friends):
+                _, writer = await asyncio.wait_for(asyncio.open_connection(*endpoint), timeout=3)
+                writer.close()
+                await writer.wait_closed()
+            previous = self.current
+            self.current = target
+            target.deadline = None
+            previous.deadline = self.clock() + self.drain_seconds
+            return previous
+
     async def retire_due(self) -> list[str]:
         """Enforce cutoff and return generation identifiers ready to stop.
 

@@ -14663,7 +14663,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,624 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15088,6 +15088,9 @@ index 0000000..7cc41f7
 +    }
 +    if ((st = docs_end(&s->docs, now)) != ST_OK) return st;
 +    referee_batch(&s->referee, &s->docs, from, srv_ms(), now);
++    // Do not acknowledge a finished race until the per-generation outbox
++    // has durably stored the native score. Retrying is safe and idempotent.
++    if (!srv_session_flush_scores(s)) return ST_UNAVAILABLE;
 +    return ST_OK;
 +}
 +
@@ -17436,7 +17439,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1121 @@
+@@ -0,0 +1,1129 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -18501,6 +18504,16 @@ index 0000000..fb8f922
 +    return 1;
 +}
 +
++int srv_session_flush_scores(SrvSession *s) {
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (!channel || !*channel) return 1;  // Preserve existing non-scoring deployments.
++    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 0;
++    for (int r = 0; r < RACES_MAX; r++)
++        if (s->referee.races[r].used && !s->referee.races[r].open &&
++            !queue_score_result(s, &s->referee.races[r])) return 0;
++    return 1;
++}
++
 +void srv_session_tick(uint64_t now) {
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
@@ -18533,9 +18546,7 @@ index 0000000..fb8f922
 +    for (int i = 0; i < nsessions; i++) {   // races whose players all wait: nobody writes to close them
 +        srv_gs_tick(sessions[i], now);
 +        referee_tick(&sessions[i]->referee, &sessions[i]->docs, now, (int64_t)time(NULL));
-+        for (int r = 0; r < RACES_MAX; r++)
-+            if (sessions[i]->referee.races[r].used && !sessions[i]->referee.races[r].open)
-+                queue_score_result(sessions[i], &sessions[i]->referee.races[r]);
++        srv_session_flush_scores(sessions[i]);
 +        if (sessions[i]->docs.nchanged) srv_gs_changed(sessions[i], 0);
 +    }
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
@@ -18563,7 +18574,7 @@ new file mode 100644
 index 0000000..2afd6d0
 --- /dev/null
 +++ b/runtime/srv/srv_session.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions (the protocol description, "Game sessions, rooms, room IDs, ICE" and "Matchmaking"): rooms made by
 +// a creation ticket and joined by JoinGameSession, sessions the matcher makes from matchmaking tickets, room IDs (short
@@ -18640,6 +18651,8 @@ index 0000000..2afd6d0
 +void srv_session_leave(SrvSession *s, const char *uid);
 +// The matcher (each second), abandoned tickets (each 30 s), idle sessions and old tickets dropped, races closed late.
 +void srv_session_tick(uint64_t now_ms);
++// Durable native score outbox before Gamesync acknowledges a finalized referee result.
++int srv_session_flush_scores(SrvSession *s);
 +
 +// CancelGameSessionCreationTicket has no effect: the unary catch-all's empty reply is all it needs.
 +extern const SrvMethod SRV_CREATE_ROOM, SRV_TRACK_ROOM, SRV_JOIN, SRV_GET_SESSION, SRV_CREATE_ALIAS, SRV_GET_ALIAS,

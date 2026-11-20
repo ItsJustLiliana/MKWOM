@@ -22832,7 +22832,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1124 @@
+@@ -0,0 +1,1188 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -23079,6 +23079,70 @@ index 0000000..b955046
 +        except subprocess.TimeoutExpired:
 +            second.kill()
 +            second.wait()
++
++
++def test_native_server_rejects_cross_channel_signed_tickets(tmp_path):
++    """A Beta score server cannot accept Release or legacy-v1 identities."""
++    import hashlib
++    import hmac
++
++    exe = os.environ.get("MKW_SRV_EXE")
++    if not exe:
++        pytest.skip("native server binary not supplied")
++    key = "ab" * 32
++    data = tmp_path / "channel-signed-server"
++    data.mkdir()
++    (data / "settings.txt").write_text("login_limit=64\n")
++    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
++        sock.bind(("127.0.0.1", 0))
++        port = sock.getsockname()[1]
++    ports = []
++    for _ in range(5):
++        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
++            udp.bind(("127.0.0.1", 0))
++            ports.append(udp.getsockname()[1])
++    env = dict(os.environ, MKWOM_GAME_TICKET_KEY=key,
++               MKWOM_ACCOUNT_ENFORCE="1", MKWOM_SCORE_CHANNEL="beta")
++    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
++            "--udp-ports", ",".join(map(str, ports)), "--data", str(data), "--seconds", "20"]
++    err = tmp_path / "channel-server.log"
++    with err.open("w") as output:
++        proc = subprocess.Popen(args, env=env, stderr=output)
++    try:
++        for _ in range(100):
++            if proc.poll() is not None:
++                pytest.fail(err.read_text(errors="replace"))
++            try:
++                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
++                break
++            except OSError:
++                time.sleep(0.1)
++        else:
++            pytest.fail("channel server did not open")
++        h = H2(data, port=port)
++        code, account = "987654321098", "b" * 32
++        for index, channel in enumerate(("release", None, "beta"), 1):
++            sid = index * 2 - 1
++            nonce = "c" * 16
++            expiry = int(time.time()) + 90
++            if channel:
++                body = f"v2.{account}.{channel}.{code}.{expiry}.{nonce}"
++            else:
++                body = f"v1.{account}.{code}.{expiry}.{nonce}"
++            sig = hmac.new(bytes.fromhex(key), body.encode("ascii"), hashlib.sha256).hexdigest()
++            identity = (f"droplet-online-v1;code={code};secret={'a' * 32};friends=;"
++                        f"mkwom={body}.{sig}")
++            call(h, sid, SIGN_IN, pb(1, f"tenants/{TENANT}") + pb(3, pb(1, identity)))
++            wait(h, lambda sid=sid: sid in h.ended)
++            assert (sid in h.data) == (channel == "beta")
++        h.s.close()
++    finally:
++        proc.terminate()
++        try:
++            proc.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            proc.kill()
++            proc.wait()
 +
 +
 +def test_srv_stun_over_udp(server: Path) -> None:

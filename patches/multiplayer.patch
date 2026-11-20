@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1019 @@
+@@ -0,0 +1,1035 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9654,22 +9654,25 @@ index 0000000..18cc1ef
 +static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
 +    wchar_t path[MAX_PATH];
 +    DWORD npath = GetModuleFileNameW(NULL, path, MAX_PATH);
-+    if (!npath || npath >= MAX_PATH) return 0;
++    if (!npath || npath >= MAX_PATH) { rt_log("mkwom: game session path unavailable"); return 0; }
 +    wchar_t *slash = wcsrchr(path, L'\\');
 +    if (!slash || (size_t)(slash - path) + 29 >= MAX_PATH) return 0;
 +    wcscpy(slash + 1, L".mkwom\\account-session.dpapi");
 +    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-+    if (file == INVALID_HANDLE_VALUE) return 0;
++    if (file == INVALID_HANDLE_VALUE) { rt_log("mkwom: saved game session unavailable (winerr=%lu)", GetLastError()); return 0; }
 +    BYTE encrypted[2048];
 +    DWORD got = 0, size = GetFileSize(file, NULL);
 +    BOOL read_ok = size > 0 && size <= sizeof encrypted && ReadFile(file, encrypted, size, &got, NULL);
 +    CloseHandle(file);
-+    if (!read_ok || got != size) return 0;
++    if (!read_ok || got != size) { rt_log("mkwom: saved session file unreadable or invalid size"); return 0; }
 +    DATA_BLOB input = {size, encrypted}, output = {0};
-+    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) return 0;
++    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) {
++        rt_log("mkwom: could not unlock saved Windows session (winerr=%lu)", GetLastError());
++        return 0;
++    }
 +    char access[65] = {0};
 +    int ok = 0;
-+    size_t offset = (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\\n", 9)) ? 9 : (output.cbData == 69 && !memcmp(output.pbData, "beta\\n", 5)) ? 5 : (output.cbData == 72 && !memcmp(output.pbData, "release\\n", 8)) ? 8 : 0;
++    size_t offset = (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) ? 9 : (output.cbData == 69 && !memcmp(output.pbData, "beta\n", 5)) ? 5 : (output.cbData == 72 && !memcmp(output.pbData, "release\n", 8)) ? 8 : 0;
 +    if (offset) { memcpy(access, output.pbData + offset, 64);
 +        ok = 1;
 +        for (int i = 0; i < 64; i++)
@@ -9678,7 +9681,7 @@ index 0000000..18cc1ef
 +    SecureZeroMemory(output.pbData, output.cbData);
 +    LocalFree(output.pbData);
 +    SecureZeroMemory(encrypted, sizeof encrypted);
-+    if (!ok) return 0;
++    if (!ok) { rt_log("mkwom: saved Windows session has an invalid format"); return 0; }
 +    ok = 0;  // A valid local token is NOT a successful remote login.
 +    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 +                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
@@ -9699,16 +9702,29 @@ index 0000000..18cc1ef
 +    WinHttpSetTimeouts(req, 3000, 3000, 5000, 5000);
 +    DWORD reject_redirect = WINHTTP_DISABLE_REDIRECTS;
 +    WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &reject_redirect, sizeof reject_redirect);
-+    if (!WinHttpSendRequest(req, headers, (DWORD)-1L, body, (DWORD)body_n, (DWORD)body_n, 0)) goto close;
-+    if (!WinHttpReceiveResponse(req, NULL)) goto close;
++    if (!WinHttpSendRequest(req, headers, (DWORD)-1L, body, (DWORD)body_n, (DWORD)body_n, 0)) {
++        rt_log("mkwom: account ticket request send failed (winerr=%lu)", GetLastError());
++        goto close;
++    }
++    if (!WinHttpReceiveResponse(req, NULL)) {
++        rt_log("mkwom: account ticket response failed (winerr=%lu)", GetLastError());
++        goto close;
++    }
 +    DWORD status = 0, sl = sizeof status;
 +    if (!WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-+                             NULL, &status, &sl, NULL) || status != 200) goto close;
++                             NULL, &status, &sl, NULL)) {
++        rt_log("mkwom: account ticket HTTP status unavailable (winerr=%lu)", GetLastError());
++        goto close;
++    }
++    if (status != 200) {
++        rt_log("mkwom: account ticket HTTP status %lu (credentials or API configuration)", status);
++        goto close;
++    }
 +    char reply[512] = {0};
 +    DWORD bytes = 0;
 +    if (!WinHttpReadData(req, reply, sizeof reply - 1, &bytes) || !bytes) goto close;
 +    const char *p = strstr(reply, "\"ticket\":\"");
-+    if (!p) goto close;
++    if (!p) { rt_log("mkwom: account API response omitted ticket"); goto close; }
 +    p += 10;
 +    const char *q = strchr(p, '"');
 +    if (!q || q - p < 100 || (size_t)(q - p) >= cap) goto close;
@@ -20325,7 +20341,7 @@ new file mode 100644
 index 0000000..3e4df5e
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.cpp
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,480 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page, in the order a player needs it: who they are (name, friend code), how they play
 +// (off, hosting the server built into the game, or joining a friend's), then their friends, then LAN play through
@@ -20432,7 +20448,16 @@ index 0000000..3e4df5e
 +            }
 +        }
 +    }
++    // Profile lookup may do filesystem writes and adapter enumeration.
++    // Never do it in the ImGui render path, particularly on first Online open.
++    char fetched_code[18] = "";
++    NetProfile profile;
++    if (t->server[0] && net_profile_load(t->server, &profile, 1))
++        net_format_code(profile.code, fetched_code);
 +    SDL_LockMutex(O.lock);
++    // Ignore stale workers after the player edited the server endpoint.
++    if (!strcmp(O.server, t->server))
++        snprintf(O.code, sizeof O.code, "%s", fetched_code);
 +    O.have_lists = lists_ok;
 +    if (lists_ok) {
 +        O.lists = g_tmp;
@@ -20484,7 +20509,7 @@ index 0000000..3e4df5e
 +        snprintf(O.peers, sizeof O.peers, "%s", p ? p : "");
 +        O.started = 1;
 +    }
-+    load_code();
++    // The refresh worker loads the local profile off the UI thread.
 +    if (O.server[0] && net_enabled()) start(JOB_REFRESH);
 +}
 +
@@ -20749,7 +20774,6 @@ index 0000000..3e4df5e
 +    static uint64_t refreshed;
 +    if (!O.busy && SDL_GetTicks() - refreshed > 5000) {
 +        refreshed = SDL_GetTicks();
-+        load_code();
 +        if (net_enabled() && O.server[0]) start(JOB_REFRESH);
 +    }
 +    float s = scale;

@@ -43,8 +43,8 @@ def test_one_account_has_separate_beta_and_release_scores(client):
     beta_score = scores(client, token, "beta").json()
     release_score = scores(client, token, "release").json()
     assert beta_score["account_id"] == release_score["account_id"] == uid
-    assert beta_score["total_points"] == 25
-    assert release_score["total_points"] == 10
+    assert beta_score["total_points"] == 0  # Solo race cannot manufacture Elo
+    assert release_score["total_points"] == 0
     assert beta_score["races"] == release_score["races"] == 1
 
 
@@ -55,7 +55,7 @@ def test_idempotent_replay_and_conflicting_retry_rejected_after_db_reopen(client
     assert publish(client, "beta", "result-1000123", player).json() == {"accepted": True, "duplicate": True}
     assert publish(client, "beta", "result-1000123",
                    [{"account_id": uid, "position": 1, "points": 99}]).status_code == 409
-    assert scores(client, token, "beta").json()["total_points"] == 35
+    assert scores(client, token, "beta").json()["total_points"] == 0
     # Other channels are never affected by Beta retries.
     assert scores(client, token, "release").json()["races"] == 0
 
@@ -87,8 +87,8 @@ def test_distinct_player_scores_and_logout_access(client):
     players = [{"account_id": uid1, "position": 1, "points": 30},
                {"account_id": uid2, "position": 2, "points": 20}]
     assert publish(client, "release", "result-11112222", players).status_code == 200
-    assert scores(client, token1, "release").json()["total_points"] == 30
-    assert scores(client, token2, "release").json()["total_points"] == 20
+    assert scores(client, token1, "release").json()["total_points"] == 12
+    assert scores(client, token2, "release").json()["total_points"] == -12
     assert publish(client, "release", "result-11112223", players + [players[0]]).status_code == 422
     client.post("/logout", headers={"Authorization": "Bearer " + token1})
     assert scores(client, token1, "release").status_code == 401
@@ -99,7 +99,7 @@ def test_beta_server_key_cannot_write_release_or_read_other_accounts(client):
     players = [{"account_id": uid, "position": 1, "points": 100}]
     assert publish(client, "release", "race-987654321", players, key="ac" * 32).status_code == 403
     assert publish(client, "release", "race-987654321", players).status_code == 200
-    assert scores(client, token, "release").json()["total_points"] == 100
+    assert scores(client, token, "release").json()["total_points"] == 0
     assert scores(client, token, "beta").json()["total_points"] == 0
 
 
@@ -118,10 +118,10 @@ def test_game_modes_are_isolated_within_each_channel(client):
     battle = {**event, "race_id": "mode-isolated-0003", "game_mode": "battle"}
     assert client.post("/internal/race-result", json=battle, headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
     assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["races"] == 1
-    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["rating"] == 3012
+    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["rating"] == 3000
     assert client.get("/scores?channel=release&game_mode=battle", headers=h).json()["rating"] == 3000
-    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["rating"] == 3012
-    assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["rating"] == 3012
+    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["rating"] == 3000
     assert client.get("/scores?channel=beta&game_mode=unknown", headers=h).status_code == 422
     assert client.post("/internal/race-result", json={**event, "game_mode": "race"},
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 409

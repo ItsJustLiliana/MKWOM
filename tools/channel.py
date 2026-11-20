@@ -14,7 +14,7 @@ from mkwom import __version__  # noqa: E402
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("channel", choices=["pre-beta", "beta", "release"])
+    p.add_argument("channel", choices=["beta", "release"])
     p.add_argument("tag")
     p.add_argument("--endpoint")
     a = p.parse_args()

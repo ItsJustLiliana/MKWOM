@@ -30,9 +30,13 @@ def unpack(archive: Path, dest: Path, want: str) -> dict:
         raise ValueError("server artifact checksum mismatch")
     with tarfile.open(archive) as t:
         members = t.getmembers()
-        if sorted(m.name for m in members) != sorted(["mkw-server", "release.json", "LICENSE", "NOTICE.md",
-                                                     "LICENSE.nghttp2", "LICENSE.mbedtls"]):
+        legacy = {"mkw-server", "release.json", "LICENSE", "NOTICE.md",
+                  "LICENSE.nghttp2", "LICENSE.mbedtls"}
+        found = {m.name for m in members}
+        if found != legacy and found != legacy | {"score_delivery.py"}:
             raise ValueError("unexpected server archive inventory")
+        if len(members) != len(found):
+            raise ValueError("duplicate archive members")
         if any(not m.isfile() or m.size > 64 * 1024 * 1024 for m in members):
             raise ValueError("invalid server archive member")
         for item in members:
@@ -64,6 +68,24 @@ def health(host: str, port: int, ca: Path):
     with socket.create_connection((host, port + 1), timeout=3) as s:
         with friends_context.wrap_socket(s, server_hostname="mkwom-health"):
             pass
+
+
+def install_score_worker(root: Path, stage: Path) -> None:
+    """Stage vetted worker code for a future opt-in service, but never start one."""
+    source = stage / "score_delivery.py"
+    if not source.is_file():
+        return  # Historic immutable Beta/Release archives had no worker.
+    folder = root / "tools"
+    if folder.is_symlink():
+        raise ValueError("untrusted score worker directory")
+    folder.mkdir(mode=0o700, exist_ok=True)
+    target = folder / "score_delivery.py"
+    if target.is_symlink():
+        raise ValueError("untrusted score worker destination")
+    fresh = folder / ".score_delivery.new"
+    shutil.copy2(source, fresh)
+    fresh.chmod(0o600)
+    os.replace(fresh, target)
 
 
 def main():
@@ -107,6 +129,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         stage = Path(tmp)
         metadata = unpack(a.archive, stage, a.sha256)
+        install_score_worker(root, stage)
         if hashlib.sha256(exe.read_bytes()).hexdigest() == metadata["sha256"]:
             health(a.host, a.port, data / "pki/ca.der")
             if a.restart_if_unchanged:

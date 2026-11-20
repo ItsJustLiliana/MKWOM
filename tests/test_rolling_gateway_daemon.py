@@ -155,3 +155,34 @@ def test_crash_in_pending_cutover_never_silently_routes_to_old(tmp_path):
     Path(conf["state_file"]).write_text('{"current":"old","pending":"new"}')
     with pytest.raises(ValueError, match="fail closed"):
         RollingGatewayService(conf)
+
+
+def test_native_old_generation_is_stopped_only_after_both_gateways_retire(tmp_path, monkeypatch):
+    async def scenario():
+        conf = config(tmp_path)
+        conf["generations"]["old"]["unit"] = "mkw-old.service"
+        service = RollingGatewayService(conf)
+        old = service.tcp.current
+        new_tcp = Generation("new", ("127.0.0.1", 21443), ("127.0.0.1", 21444))
+        new_udp = UDPGeneration("new", tuple(("127.0.0.1", p) for p in
+                                      (15478, 15479, 13025, 13125, 15334)))
+        service.tcp.current = new_tcp
+        service.udp.current = new_udp
+        service.tcp.generations["new"] = new_tcp
+        service.udp.generations["new"] = new_udp
+        commands = []
+        def command(args, **_kwargs):
+            commands.append(args)
+        monkeypatch.setattr("tools.rolling_gateway_daemon.subprocess.run", command)
+        retired = asyncio.create_task(service._retirement())
+        try:
+            del service.tcp.generations["old"]
+            await asyncio.sleep(0.3)
+            assert commands == []  # Old UDP flows may still be racing.
+            del service.udp.generations["old"]
+            await asyncio.sleep(0.3)
+            assert commands == [["systemctl", "--user", "stop", "mkw-old.service"]]
+        finally:
+            service.stop_event.set()
+            await asyncio.wait_for(retired, timeout=2)
+    asyncio.run(scenario())

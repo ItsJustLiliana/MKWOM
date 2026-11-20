@@ -96,6 +96,7 @@ class RollingGatewayService:
         self.control_server = None
         self.stop_event = asyncio.Event()
         self.stopped_units = set()
+        self._operator_lock = asyncio.Lock()
         self.rollback_target = None
         self._health_failures = 0
 
@@ -226,9 +227,11 @@ class RollingGatewayService:
             if action == "status":
                 result = self.status()
             elif action == "switch":
-                result = await self.switch(cmd.get("target"))
+                async with self._operator_lock:
+                    result = await self.switch(cmd.get("target"))
             elif action == "rollback":
-                result = await self.rollback(cmd.get("target"))
+                async with self._operator_lock:
+                    result = await self.rollback(cmd.get("target"))
             else:
                 raise ValueError("unsupported control action")
             payload = {"ok": True, "result": result}
@@ -263,7 +266,11 @@ class RollingGatewayService:
                 self.rollback_target = None
                 return
             try:
-                await self.rollback(previous)
+                async with self._operator_lock:
+                    # A concurrent operator switch may have superseded this probe.
+                    if self.rollback_target != previous or self.tcp.current.name != current:
+                        return
+                    await self.rollback(previous)
                 print(f"Automatic routing rollback to {previous} complete", flush=True)
             except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
                 print(f"Automatic rollback FAILED: {error}", flush=True)

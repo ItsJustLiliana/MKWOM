@@ -61,3 +61,14 @@ def test_native_drain_marker_rejects_new_lobby_creation_and_join_only():
     # Existing writes/referee code is not blocked by the drain admission gate.
     gamesync = source("srv_main.c")
     assert "srv_session_tick" in gamesync
+
+
+def test_referee_uses_server_chosen_session_rule_for_all_three_score_modes():
+    session = source("srv_session.c")
+    # Matchmaking supplies the rule from its selected queue mode, not from the
+    # reported finish position or a score submitter's arbitrary game_mode field.
+    assert '!strcmp(config, "Battle24") ? 5 : 0' in session
+    assert "int rule = (int)map_int(&session->attrs, \"rule\", -1);" in session
+    assert 'rule == 5 ? "battle" : "race"' in session
+    assert 'rule == 6 ? "knockout"' in session
+    assert 'session->attrs' in session

@@ -12985,7 +12985,7 @@ new file mode 100644
 index 0000000..92bfe66
 --- /dev/null
 +++ b/runtime/srv/srv.h
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,25 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server built into the executable: `mkw.exe --server [--host ADDR]... [--port P] [--data DIR]
 +// [--seconds S]`, a process of its own (the start screen or the game starts it, and it ends with them), so a fault in it
@@ -13007,6 +13007,8 @@ index 0000000..92bfe66
 +#include <stdint.h>
 +uint64_t srv_ms(void);
 +const char *srv_data_dir(void);
++// Configured native UDP listeners: STUN1/STUN2/NAT1/NAT2/NAT3.
++int srv_udp_port(size_t index);
 +// Cryptographically random bytes (ids, room numbers, tokens); 1 on success.
 +int srv_random(void *buf, size_t n);
 diff --git a/runtime/srv/srv_api.c b/runtime/srv/srv_api.c
@@ -15838,7 +15840,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,393 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -15870,6 +15872,23 @@ index 0000000..de6177a
 +static const struct {
 +    int port, kind;
 +} UDP_PORTS[] = {{3478, K_STUN}, {3479, K_STUN}, {10025, K_NAT}, {10125, K_NAT}, {33334, K_NAT}};
++
++int srv_udp_port(size_t index) {
++    return index < sizeof UDP_PORTS / sizeof *UDP_PORTS ? UDP_PORTS[index].port : 0;
++}
++
++static int parse_udp_ports(const char *value) {
++    int proposed[5], used = 0;
++    if (!value || sscanf(value, "%d,%d,%d,%d,%d%n",
++                         &proposed[0], &proposed[1], &proposed[2],
++                         &proposed[3], &proposed[4], &used) != 5 || value[used]) return 0;
++    for (size_t i = 0; i < 5; i++) {
++        if (proposed[i] < 1024 || proposed[i] > 65535) return 0;
++        for (size_t j = 0; j < i; j++) if (proposed[j] == proposed[i]) return 0;
++    }
++    for (size_t i = 0; i < 5; i++) UDP_PORTS[i].port = proposed[i];
++    return 1;
++}
 +
 +typedef struct {
 +    Sock s;
@@ -16086,10 +16105,12 @@ index 0000000..de6177a
 +            seconds = atoi(argv[++i]);
 +        } else if (!strcmp(argv[i], "--port") && v && atoi(v) > 0 && atoi(v) < 65534) {
 +            port = atoi(argv[++i]);
++        } else if (!strcmp(argv[i], "--udp-ports") && v && parse_udp_ports(v)) {
++            i++;
 +        } else if (!strcmp(argv[i], "--data") && v && *v) {
 +            data_dir = argv[++i];
 +        } else {
-+            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--data DIR] [--seconds S]  (at most %d "
++            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--udp-ports STUN1,STUN2,NAT1,NAT2,NAT3] [--data DIR] [--seconds S]  (at most %d "
 +                            "numeric addresses)\n", MAX_HOSTS);
 +            return 2;
 +        }
@@ -16135,7 +16156,9 @@ index 0000000..de6177a
 +    snprintf(pid_text, sizeof pid_text, "%lu", GetCurrentProcessId());
 +    plat_file_write_atomic(pid_path, pid_text, strlen(pid_text));
 +#endif
-+    srv_log("started: port %d (friends API %d) on %d address(es)", port, port + 1, nhosts);
++    srv_log("started: TCP %d/%d, UDP %d/%d/%d/%d/%d on %d address(es)", port, port + 1,
++            UDP_PORTS[0].port, UDP_PORTS[1].port, UDP_PORTS[2].port,
++            UDP_PORTS[3].port, UDP_PORTS[4].port, nhosts);
 +    time_t end = seconds ? time(NULL) + seconds : 0;
 +    static struct pollfd pf[MAX_LISTEN + MAX_CONNS];
 +    int code = 0;
@@ -17989,12 +18012,12 @@ index 0000000..fb8f922
 +    pb_str(&o, 1, name);
 +    size_t m = pb_begin(&o, 2);
 +    pb_str(&o, 1, "stun.npln.nintendo.net");
-+    pb_varint(&o, 2, 3478);
++    pb_varint(&o, 2, (uint64_t)srv_udp_port(0));
 +    pb_varint(&o, 3, 1);   // UDP
 +    pb_end(&o, m);
 +    m = pb_begin(&o, 3);
 +    pb_str(&o, 1, *relay ? relay : "relay.npln.nintendo.net");
-+    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", 3479, 1, 65535));
++    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", srv_udp_port(1), 1, 65535));
 +    pb_varint(&o, 3, 1);
 +    pb_str(&o, 4, *relay ? turn_user : uid);
 +    pb_str(&o, 5, *relay ? turn_password : cred);

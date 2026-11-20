@@ -72,3 +72,25 @@ The accounting contract currently uses the native referee's *rounded Elo
 change* as `points`; it does not purport to preserve unimplemented
 per-Grand-Prix tournament points. Existing historical races that were only
 in memory cannot be recovered from this new score ledger.
+
+## Gamemode score isolation and anti-cheat limitations (PR #20)
+
+The score ledger now requires a native-referee-issued `game_mode` of
+`versus` or `knockout`. Within each account, scores are separated by
+**channel and mode**; users can request `/scores?channel=beta&game_mode=versus`
+(or Knockout/Release combinations). Native outbox events derive Knockout
+from the referee's numbered tour section, not from the launcher. The delivery
+worker rejects missing and unexpected modes. Existing channel-only records
+remain in a `legacy` namespace after SQLite migration and are never silently
+claimed as Versus or Knockout.
+
+**Security boundary:** authenticated account sessions cannot directly submit
+results. Only native servers holding a channel-specific secret can write scores;
+duplicate race IDs and conflicting event bodies cannot inflate the totals.
+However, the referee currently aggregates finish reports that originate in game
+clients. A malicious modified client could still manipulate a reported finishing
+position or gameplay; this system is **not a verified cheat-proof leaderboard**.
+Before treating competitive ratings as trusted, require independent server-side
+race outcome verification, abuse detection, identity/session binding, and
+per-mode integrity tests with adversarial clients. Do not label PR #20 ready for
+production on the strength of score-API tests alone.

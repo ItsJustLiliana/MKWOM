@@ -66,3 +66,22 @@ def test_only_main_or_prebeta_builds_new_candidates():
     script = contents("tools/release_metadata.py")
     assert '("main", "pre-beta")' in script
     assert 'channel = "pre-beta"' in script
+
+
+def test_release_deploys_approved_beta_instead_of_unpublished_draft():
+    workflow = contents(".github/workflows/promote.yml")
+    assert "tag: ${{ needs.promote.outputs.candidate }}" in workflow
+    assert "restart_if_unchanged: true" in workflow
+    assert "publish-stable:" in workflow
+    assert "needs: [promote, deploy-release]" in workflow
+    assert "needs: [promote, publish-stable]" in workflow
+    assert "needs: [promote, activate-release]" in workflow
+    assert "gh release edit \"$RELEASE_TAG\" --latest" in workflow
+
+
+def test_failed_release_promotion_can_resume_existing_draft_without_duplicate_tag():
+    script = contents("tools/promote.py")
+    assert 'f.write(f"candidate={candidate}\\n")' in script
+    assert '"isDraft,isPrerelease,targetCommitish,body,assets"' in script
+    assert "Reusing existing draft or published Release" in script
+    assert "refusing overwrite" in script

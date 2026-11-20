@@ -141,6 +141,25 @@ else:
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
         "--title", tag, "--notes", notes]
 args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
-subprocess.run(args, check=True)
+if destination == "release":
+    # Rerun safely after a deployment failure, without duplicating v0.1.1.
+    listed = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"], text=True))
+    matching = [r for r in listed if r["tagName"] == tag]
+    if matching:
+        found = json.loads(subprocess.check_output(
+            ["gh", "release", "view", tag, "--json", "isDraft,isPrerelease,targetCommitish,body,assets"],
+            text=True))
+        if (found.get("isPrerelease") or
+                found.get("targetCommitish") != info["source_sha"] or
+                ("`" + candidate + "`") not in found.get("body", "") or
+                {a["name"] for a in found.get("assets", [])} != {p.name for p in release_assets}):
+            raise ValueError("existing Release tag does not match approved Beta; refusing overwrite")
+        print("Reusing existing draft or published Release from the approved Beta:", tag)
+    else:
+        subprocess.run(args, check=True)
+else:
+    subprocess.run(args, check=True)
 with open(os.environ["GITHUB_OUTPUT"], "a") as f:
     f.write(f"tag={tag}\n")
+    f.write(f"candidate={candidate}\n")

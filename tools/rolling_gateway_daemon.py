@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import ssl
 import subprocess
 import time
 
@@ -78,8 +79,8 @@ class RollingGatewayService:
             raise ValueError("control/state symlinks refused")
         if self.state_path.exists():
             state = json.loads(self.state_path.read_text())
-            if state.get("current") != self.initial:
-                raise ValueError("saved routing generation differs from boot configuration; fail closed")
+            if state.get("current") != self.initial or state.get("pending"):
+                raise ValueError("saved or interrupted routing transition differs from boot; fail closed")
         first = self.settings[self.initial]
         self.tcp = RollingTCPGateway(Generation(self.initial, first["lobby"], first["friends"]))
         self.udp = RollingUDPGateway(UDPGeneration(self.initial, first["udp"]))
@@ -95,9 +96,18 @@ class RollingGatewayService:
 
     async def _health(self, name):
         g = self._generation(name)
-        await asyncio.to_thread(health, g["lobby"][0], g["lobby"][1], g["ca"])
+        last = None
+        for attempt in range(15):
+            try:
+                await asyncio.to_thread(health, g["lobby"][0], g["lobby"][1], g["ca"])
+                return
+            except (OSError, ValueError, ssl.SSLError) as exc:
+                last = exc
+                if attempt != 14:
+                    await asyncio.sleep(1)
+        raise RuntimeError(f"generation {name} failed pinned TLS readiness") from last
 
-    def _write_state(self):
+    def _write_state(self, *, pending=None):
         self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.state_path.is_symlink():
             raise ValueError("untrusted routing state symlink")
@@ -107,7 +117,8 @@ class RollingGatewayService:
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "w") as stream:
-                json.dump({"current": self.tcp.current.name, "updated_at": time.time()}, stream)
+                json.dump({"current": self.tcp.current.name, "pending": pending,
+                           "updated_at": time.time()}, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temp, self.state_path)
@@ -140,6 +151,7 @@ class RollingGatewayService:
         await self._health(target)
         marker = self._drain(old)
         try:
+            self._write_state(pending=target)
             await self.controller.switch(
                 Generation(target, spec["lobby"], spec["friends"]),
                 UDPGeneration(target, spec["udp"]))
@@ -158,6 +170,7 @@ class RollingGatewayService:
         await self._health(target)
         marker = self._drain(old)
         try:
+            self._write_state(pending=target)
             await self.controller.rollback(target)
             self._write_state()
             (self._generation(target)["data"] / "drain").unlink(missing_ok=True)

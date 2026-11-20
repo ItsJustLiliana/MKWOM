@@ -152,3 +152,31 @@ def test_rollback_reuses_healthy_old_backend_without_killing_existing_streams():
             await old.wait_closed()
             await new.wait_closed()
     run(scenario())
+
+
+def test_no_tcp_streams_does_not_retire_udp_active_generation_early():
+    async def scenario():
+        old_server, op = await endpoint(b"O")
+        new_server, np = await endpoint(b"N")
+        clock = [25.0]
+        gateway = RollingTCPGateway(
+            Generation("old", ("127.0.0.1", op), ("127.0.0.1", op)),
+            clock=lambda: clock[0], drain_seconds=3600)
+        try:
+            await gateway.start("127.0.0.1", 0, 0)
+            await gateway.switch(Generation("new", ("127.0.0.1", np), ("127.0.0.1", np)))
+            # The old game may still have a UDP-only race without a TCP stream.
+            assert not gateway.generations["old"].streams
+            assert await gateway.retire_due() == []
+            assert "old" in gateway.generations
+            clock[0] += 3599.99
+            assert await gateway.retire_due() == []
+            await gateway.rollback("old")
+            assert gateway.current.name == "old"
+        finally:
+            await gateway.close()
+            old_server.close()
+            new_server.close()
+            await old_server.wait_closed()
+            await new_server.wait_closed()
+    run(scenario())

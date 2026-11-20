@@ -5,7 +5,7 @@ handoff and durable finish acknowledgements still need end-to-end validation.
 Never route live gameplay through this module before those gates pass.
 """
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import socket
 import struct
 import time

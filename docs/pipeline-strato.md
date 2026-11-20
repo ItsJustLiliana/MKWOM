@@ -32,7 +32,7 @@ Run the *same* workflow with:
 - Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `beta-<run>-<sha12>` tag
 - Release version: `vX.Y.Z`
 
-It verifies the active Beta pointer, copies the exact already-tested artifacts to the **published** stable GitHub Release, then activates `channel-release`. It does **not** deploy to a second host or restart the same binary again. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
+It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart the same STRATO lobby, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
 
 ## One-time GitHub environment setup
 
@@ -64,3 +64,9 @@ For the **beta** and **release** GitHub environments set `COMMUNITY_ENDPOINT=31.
 - Auto-queue is automated **after a new main build**, not a cron job checking already deployed binaries.
 - A fresh server CA, game-tickets, friend join, gameplay and UDP advertisement must be tested with real clients before declaring the migration finished.
 - Disable old Arch lobby and relay only after full production acceptance. Keep offline encrypted data/CA backups.
+
+## Windows setup experience
+
+The downloadable `mkwom.exe` opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Done** closes the setup, without launching the game. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
+
+A stable EXE Release is created as a draft during promotion and becomes a **published non-prerelease Latest** only after the approved restart, health check and channel activation. Beta candidates and queued pre-beta builds remain internal GitHub prereleases, not the Latest stable download.

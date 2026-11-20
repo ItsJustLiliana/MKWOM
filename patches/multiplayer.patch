@@ -15869,7 +15869,7 @@ index 0000000..de6177a
 +
 +enum { MAX_HOSTS = 8, MAX_LISTEN = 64, MAX_CONNS = 256, MAX_PER_IP = 16, LOG_MAX = 2 << 20 };
 +enum { K_STUN, K_NAT, K_GRPC, K_API };
-+static const struct {
++static struct {
 +    int port, kind;
 +} UDP_PORTS[] = {{3478, K_STUN}, {3479, K_STUN}, {10025, K_NAT}, {10125, K_NAT}, {33334, K_NAT}};
 +

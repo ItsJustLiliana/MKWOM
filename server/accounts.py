@@ -293,6 +293,7 @@ def account_scores(channel: str, game_mode: str | None = None, token_hash: str =
         history = db.execute(
             "SELECT race_id,game_mode,position,points FROM race_scores WHERE " + where + " ORDER BY rowid DESC LIMIT 50", args).fetchall()
     return {"channel": channel, "game_mode": game_mode, "account_id": user_id, "total_points": score[0],
+            "rating": 3000 + score[0] if game_mode else None,
             "races": score[1], "history": [
                 {"race_id": race, "game_mode": mode, "position": position, "points": points}
                 for race, mode, position, points in history]}

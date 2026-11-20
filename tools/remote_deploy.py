@@ -16,7 +16,7 @@ if any(not os.environ.get(name) for name in required):
     raise ValueError("deployment environment is incomplete; no remote changes made")
 if os.environ["DEPLOY_HOST"] != "31.70.192.231" or os.environ["DEPLOY_USER"] != "mkwom":
     raise ValueError("only the configured STRATO VPS may receive production deployments")
-if not re.fullmatch(r"[a-zA-Z0-9_.-]+\\.service", os.environ["DEPLOY_UNIT"]):
+if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", os.environ["DEPLOY_UNIT"]):
     raise ValueError("invalid service unit")
 if not re.fullmatch(r"[0-9]+", os.environ["LOBBY_PORT"]):
     raise ValueError("invalid lobby port")

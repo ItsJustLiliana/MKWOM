@@ -1,6 +1,7 @@
 """Opt-in gateway control, rollback and fail-closed boot-state tests."""
 import asyncio
 import json
+import os
 from pathlib import Path
 import socket
 
@@ -13,7 +14,7 @@ from tools.rolling_udp_gateway import UDPGeneration
 
 def config(tmp_path):
     specs = {}
-    for name, offset in (("old", 0), ("new", 100)):
+    for name, offset in (("old", 0), ("new", 2000)):
         data = tmp_path / name / "server"
         data.mkdir(parents=True)
         ca = data / "pki" / "ca.der"
@@ -110,6 +111,7 @@ def test_cutover_state_write_failure_reverts_and_undrains_old(tmp_path, monkeypa
     asyncio.run(scenario())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix domain gateway control socket is Linux-only")
 def test_local_control_socket_reports_current_routing(tmp_path, monkeypatch):
     async def scenario():
         conf = config(tmp_path)

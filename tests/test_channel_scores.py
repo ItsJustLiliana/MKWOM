@@ -8,7 +8,8 @@ from server import accounts
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "DB_PATH", tmp_path / "score-accounts.sqlite3")
-    monkeypatch.setenv("MKWOM_SCORE_INGEST_KEY", "ac" * 32)
+    monkeypatch.setenv("MKWOM_SCORE_BETA_KEY", "ac" * 32)
+    monkeypatch.setenv("MKWOM_SCORE_RELEASE_KEY", "bd" * 32)
     accounts._attempts.clear()
     return TestClient(accounts.app)
 
@@ -21,9 +22,9 @@ def register(client, username):
     return token, account
 
 
-def publish(client, channel, race_id, players, *, key="ac" * 32):
+def publish(client, channel, race_id, players, *, key=None):
     return client.post("/internal/race-result",
-                       headers={"X-MKWOM-Score-Key": key},
+                       headers={"X-MKWOM-Score-Key": key if key is not None else ("bd" * 32 if channel == "release" else "ac" * 32)},
                        json={"channel": channel, "race_id": race_id, "players": players})
 
 
@@ -91,3 +92,12 @@ def test_distinct_player_scores_and_logout_access(client):
     assert publish(client, "release", "result-11112223", players + [players[0]]).status_code == 422
     client.post("/logout", headers={"Authorization": "Bearer " + token1})
     assert scores(client, token1, "release").status_code == 401
+
+
+def test_beta_server_key_cannot_write_release_or_read_other_accounts(client):
+    token, uid = register(client, "PlayerGolf")
+    players = [{"account_id": uid, "position": 1, "points": 100}]
+    assert publish(client, "release", "race-987654321", players, key="ac" * 32).status_code == 403
+    assert publish(client, "release", "race-987654321", players).status_code == 200
+    assert scores(client, token, "release").json()["total_points"] == 100
+    assert scores(client, token, "beta").json()["total_points"] == 0

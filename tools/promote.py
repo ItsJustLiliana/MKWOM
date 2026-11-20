@@ -146,8 +146,8 @@ The patcher checks hashes and preserves backups, saves and config for uninstall.
 - This is an unofficial, AI-assisted project, not affiliated with Nintendo or the upstream developers.
 """
 else:
-    notes = (f"## Beta {tag}\\n\\n"
-             f"Promoted from verified pre-beta candidate \`{candidate}\` without rebuilding.\\n\\n"
+    notes = (f"## Beta {tag}\n\n"
+             f"Promoted from verified pre-beta candidate `{candidate}` without rebuilding.\n\n"
              "Automated patch and server tests passed; two-PC multiplayer races require manual validation. "
              "Internal server, checksum and provenance assets are for staged deployment and verification.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],

@@ -43,7 +43,7 @@ def test_invalid_account_never_starts_game_or_writes_session(tmp_path):
 
 
 def test_ticket_logging_distinguishes_local_api_failures_without_printing_secrets():
-    patch_contents = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text()
+    patch_contents = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text(encoding="utf-8")
     marker = "diff --git a/runtime/sdk/ov/net_online.c"
     code = patch_contents.split(marker, 1)[1].split("diff --git ", 1)[0]
     assert "mkwom: saved game session unavailable" in code
@@ -54,7 +54,7 @@ def test_ticket_logging_distinguishes_local_api_failures_without_printing_secret
 
 def test_net_online_patch_length_matches_unified_diff_hunk():
     import re
-    contents = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text()
+    contents = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text(encoding="utf-8")
     code = contents.split("diff --git a/runtime/sdk/ov/net_online.c", 1)[1].split("diff --git ", 1)[0]
     hunk = re.search(r"@@ -0,0 \+1,(\d+) @@", code)
     assert hunk is not None

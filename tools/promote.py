@@ -83,8 +83,10 @@ if destination == "release" and not tag:
 if destination not in ("beta", "release") or (destination == "release" and
         not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
     raise ValueError("Release version must look like v0.1.0")
-# Preserve generic assets for the auto-updater, plus versioned downloads for humans.
-release_assets = [Path("dist") / n for n in names]
+# Candidate/Beta releases retain complete verified provenance and deployment assets.
+# Public stable releases contain only user-facing Windows downloads. Release
+# channel verification is sourced from the already approved immutable Beta tag.
+release_assets = [Path("dist") / n for n in names] if destination == "beta" else []
 if destination == "release":
     for source, filename in (
         ("mkwom-patch-windows-x64.zip", f"MKWOM-Patch-{tag}-windows-x64.zip"),

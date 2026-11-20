@@ -70,3 +70,37 @@ For the **beta** and **release** GitHub environments set `COMMUNITY_ENDPOINT=31.
 The downloadable `mkwom.exe` opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Done** closes the setup, without launching the game. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
 
 A stable EXE Release is created as a draft during promotion and becomes a **published non-prerelease Latest** only after the approved restart, health check and channel activation. Beta candidates and queued pre-beta builds remain internal GitHub prereleases, not the Latest stable download.
+
+## Existing installation workflow
+
+After selecting the official `mkw.exe` folder, the wizard checks the committed `.mkwom/installed.json` manifest. If no patch is installed, it follows the ordinary channel → account → review → install flow. If the patch already exists, a dedicated choice appears:
+
+- **Reinstall**: choose Beta or Release again and explicitly reinstall, including the same version when requested.
+- **Uninstall**: confirm, restore the original game files transactionally, preserve saves and Windows Credential Manager account, and show **Done**.
+
+On reinstall, the stored account token is checked against the account API before the review screen. A valid account skips the login form; an expired or revoked account requires fresh login. If the API cannot be reached, installation fails closed. The local native game session bridge is removed on uninstall but the Windows account credential is preserved for a later installation.
+
+### Set up GitHub Actions SSH from Arch Linux (one-time)
+
+Run locally as `marijn` on the Arch machine (only to create the deployment key):
+
+```bash
+ssh-keygen -t ed25519 -a 100 -f "$HOME/.ssh/mkwom_github_deploy" -N "" -C "github-actions-mkwom-strato"
+chmod 600 "$HOME/.ssh/mkwom_github_deploy"
+ssh -i "$HOME/.ssh/strato_mkwom" mkwom@31.70.192.231 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh; cat >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys' < "$HOME/.ssh/mkwom_github_deploy.pub"
+```
+
+The `strato_mkwom` key is used only to authorize the *new public* key; do **not** upload your personal key to GitHub. Test the dedicated key locally with `ssh -i ~/.ssh/mkwom_github_deploy -o IdentitiesOnly=yes mkwom@31.70.192.231 'whoami'`; expected: `mkwom`.
+
+Get the *public SSH host key* from an authenticated STRATO terminal (not from an unverified network scan):
+
+```bash
+sudo cat /etc/ssh/ssh_host_ed25519_key.pub
+sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+The previously recorded SSH fingerprint was `SHA256:2zSN2KSoMgkMh5sS338GsETc/5URa1T/qTnmOxi7GAc`; verify it still matches. The `DEPLOY_SSH_KNOWN_HOSTS` secret value should be one line: `31.70.192.231 ssh-ed25519 <base64-from-public-host-key>`.
+
+In GitHub `ItsJustLiliana/MKWOM → Settings → Environments → pre-beta`, put the full contents of the *new dedicated private key* in `DEPLOY_SSH_KEY`, and the verified known-hosts line in `DEPLOY_SSH_KNOWN_HOSTS`. Add the other environment secrets and variables from the configuration table above. `pre-beta` must not require manual reviewers because the queue upload is automated. The `beta` and `release` environments can require approval for promotions.
+
+Run **Actions → Test STRATO SSH access (no deployment)**. Only after that passes and you have tested multiplayer should you enable `AUTO_DEPLOY=true`. Never paste private keys or token values into issues, chats, or logs. Delete your local dedicated private key when safely stored in your GitHub encrypted secret and no longer needed for debugging.

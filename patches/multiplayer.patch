@@ -9669,8 +9669,12 @@ index 0000000..18cc1ef
 +    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) return 0;
 +    char access[65] = {0};
 +    int ok = 0;
-+    if (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) {
-+        memcpy(access, output.pbData + 9, 64);
++    size_t offset = 0;
++    if (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\\n", 9)) offset = 9;
++    else if (output.cbData == 69 && !memcmp(output.pbData, "beta\\n", 5)) offset = 5;
++    else if (output.cbData == 72 && !memcmp(output.pbData, "release\\n", 8)) offset = 8;
++    if (offset) {
++        memcpy(access, output.pbData + offset, 64);
 +        ok = 1;
 +        for (int i = 0; i < 64; i++)
 +            if (!((access[i] >= '0' && access[i] <= '9') || (access[i] >= 'a' && access[i] <= 'f'))) ok = 0;

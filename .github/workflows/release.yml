@@ -1,4 +1,4 @@
-name: Activate published Release
+name: Re-activate existing Release (rollback/manual)
 on:
   workflow_dispatch:
     inputs:
@@ -22,17 +22,8 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$(gh release view "$TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-  deploy:
-    needs: validate
-    uses: ./.github/workflows/deploy.yml
-    permissions:
-      contents: read
-    with:
-      tag: ${{ needs.validate.outputs.tag }}
-      environment: release
-    secrets: inherit
   activate:
-    needs: [validate, deploy]
+    needs: validate
     uses: ./.github/workflows/channel.yml
     with:
       tag: ${{ needs.validate.outputs.tag }}

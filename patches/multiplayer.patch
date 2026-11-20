@@ -16141,7 +16141,7 @@ index 0000000..de6177a
 +        listen_on(hosts[h], port, 0, K_GRPC);
 +        listen_on(hosts[h], port + 1, 0, K_API);
 +        for (size_t k = 0; k < sizeof UDP_PORTS / sizeof *UDP_PORTS; k++) {
-+            if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", "")) continue; // external coturn owns this port
++            if (k == 1 && *srv_setting("turn_host", "")) continue; // external coturn owns the relay port
 +            listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
 +        }
 +    }

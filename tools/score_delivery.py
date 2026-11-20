@@ -13,8 +13,8 @@ import time
 import urllib.error
 import urllib.request
 
-SAFE_RACE = re.compile(r"[A-Za-z0-9_-]{12,128}\\Z")
-SAFE_ACCOUNT = re.compile(r"[a-f0-9]{32}\\Z")
+SAFE_RACE = re.compile(r"[A-Za-z0-9_-]{12,128}\Z")
+SAFE_ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
 CHANNELS = ("beta", "release")
 MAX_EVENT = 16 * 1024
 

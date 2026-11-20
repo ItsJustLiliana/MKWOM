@@ -196,10 +196,9 @@ class SetupWizard:
         self.message.configure(text=self.notice.get())
         if self.complete:
             self.heading.configure(text="You're ready to race!")
-            self.subtitle.configure(text="MKWOM was installed and configured successfully.")
-            self._label(self.body, "✓  Installation complete", 21, "#4fdaa8", bold=True).pack(anchor="w", pady=20)
-            self._label(self.body, "You can now start Mario Kart World from mkw.exe.\n"
-                                  "Your online login and server settings are saved securely.",
+            self.subtitle.configure(text="Your original game files were restored." if self.completed_action == "uninstall" else "MKWOM was installed and configured successfully.")
+            self._label(self.body, "✓  Uninstall complete" if self.completed_action == "uninstall" else "✓  Installation complete", 21, "#4fdaa8", bold=True).pack(anchor="w", pady=20)
+            self._label(self.body, ("Original game files restored. Saves and your Windows account are kept." if self.completed_action == "uninstall" else "You can now start Mario Kart World from mkw.exe.\nYour login and server settings are saved securely."),
                         11, MUTED, justify="left").pack(anchor="w")
             self.back.configure(state="disabled")
             self.next.configure(text="Done", command=self.close)

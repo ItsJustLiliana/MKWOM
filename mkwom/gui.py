@@ -308,12 +308,6 @@ class Launcher:
     @staticmethod
     def score_summary(channel: str) -> str:
         scores = channel_scores(channel)
-        by_mode = {}
-        for entry in scores.get("history", []):
-            mode = entry.get("game_mode", "legacy")
-            by_mode.setdefault(mode, [0, 0])
-            by_mode[mode][0] += entry["points"]
-            by_mode[mode][1] += 1
         # Fetch all-time totals per mode: history contains at most 50 races.
         versus = channel_scores(channel, "versus")
         knockout = channel_scores(channel, "knockout")

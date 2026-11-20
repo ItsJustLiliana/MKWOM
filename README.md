@@ -27,8 +27,7 @@ downloads and applies the patch transactionally, then starts the game. On later 
 checks for new patches before launching. **Uninstall patch** restores verified original runtime files and retains saves.
 
 A working community endpoint is needed. Existing installations can use their saved endpoint; the operator may
-configure another endpoint in Connection settings. A public default endpoint will be provided by the release
-channel only after its server deployment is ready. The native graphical setup is currently Windows-only.
+configure another endpoint in Connection settings. The official built-in endpoint is STRATO; client updates must be verified against the new CA before public promotion. The native graphical setup is currently Windows-only.
 For automated scripts, the same executable retains its command-line interface with arguments, e.g.:
 
 ```powershell
@@ -37,9 +36,7 @@ For automated scripts, the same executable retains its command-line interface wi
 
 The managed runtime connects automatically and shows friends and connection status, without the server-address
 and local-host controls. Endpoint configuration is still technically discoverable in local settings/network tools;
-this is not IP obfuscation. The current saved endpoint is preserved so existing account identities are not silently
-changed. Do **not** change to the future VPS hostname until authenticated profile-alias migration is implemented
-and tested; preserving server data alone does not migrate the client profile's address-derived key.
+this is not IP obfuscation. The official community endpoint is now the STRATO VPS at `31.70.192.231:18443`. The old Arch endpoint is no longer an automatic fallback. This is a fresh server with new test accounts and a new CA, so existing players must reinstall/update and verify their identities and friend codes.
 
 The patcher changes only verified runtime/setup files, with original backups under `.mkwom/`. It does not inject
 into a running process. Changes are journalled, checked before writing, and rolled back if a write fails. Close
@@ -49,19 +46,22 @@ passed to the child process. The built-in upstream updater is disabled only for 
 MKWOM owns updates to the patched runtime. Uninstall before independently upgrading the underlying recomp.
 The patcher itself requests a fresh download if its own required version changes; patch updates are automatic.
 
-## Three-stage manual release pipeline
+## STRATO build queue and approval pipeline
 
-**All server and client channel activations are manual:**
+**Every successful push to `main` automatically builds and queues a pre-beta candidate on STRATO.**
+This is a queue of verified artifacts, not a public update channel or second active server:
 
-1. Code on `main` builds and tests a new immutable **pre-beta candidate**. Nothing is deployed automatically.
-2. Click **Actions > Activate pre-beta on Arch (manual)**, select that candidate and verify the pre-beta server.
-3. When satisfied, click **Actions > Promote tested candidate > beta**. Only the **currently activated pre-beta** candidate can advance. After deployment and health checks, Beta's client channel is updated.
-4. After Beta testing, click **Promote tested candidate > release** using the **currently activated Beta** tag. This creates a **draft** stable GitHub Release; it does not deploy.
-5. Edit and publish the stable GitHub Release, then **click Actions > Activate published Release**. This is the separate manual Release deployment/activation step.
+1. GitHub Actions builds/tests the Windows patch, patcher and Linux server, publishes a `pre-beta-...` candidate, and stages its checked server archive in the STRATO VPS's `candidates/` folder.
+2. When you approve that candidate, click **Actions → Promote queued build to Beta or approved Beta to Release**, choose **beta**, and enter the queued tag. Only this button deploys the candidate to the live STRATO lobby. Health checks must succeed before `channel-beta` moves.
+3. After testing Beta, click the **same** button with **release**, the active `beta-...` tag, and a `vX.Y.Z` version. The exact tested artifacts are published to Release and `channel-release` is updated without a second deployment.
 
-Promotion copies tested binaries exactly (SHA-256 verified), never silently rebuilds or skips stages. A failed deployment leaves the prior channel unchanged. Account stores are separate and never copied across environments.
+Pre-beta has **no published client channel**. Beta and Release are the only public update channels. This single VPS has one active game backend; promoting to Beta therefore changes that backend for any connected clients. A truly isolated Beta game backend would require separate UDP/TURN routing and account stores.
 
-**Current host:** Arch Linux. Start by bootstrapping an isolated pre-beta instance and its account API; three concurrent servers require independent networking/UDP/TURN. Later, swap the per-environment deployment target to STRATO. See [three-stage Arch setup](docs/three-stage-arch.md) and [operator instructions](docs/operations.md).
+Operator setup for the automatic upload and manual promotion: [STRATO pipeline](docs/pipeline-strato.md). Secret SSH credentials stay in GitHub environments, never in Git. Missing credentials fail closed.
+
+## STRATO deployment (official)
+
+The account API and native game-ticket endpoint are `https://mkwom-api.liliananuzohra.com`. The native game lobby uses `31.70.192.231:18443` directly; Cloudflare Tunnel is **only** for HTTPS account traffic. No live MKWOM service requires Arch Linux after verified cutover. GitHub Actions deployment uses pinned-host-key SSH to STRATO and remains opt-in until operator secrets, deployment variables, and multiplayer smoke tests pass. See [STRATO migration](docs/strato-migration.md).
 
 ## Server and future VPS
 

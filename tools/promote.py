@@ -1,4 +1,4 @@
-"""Copy a tested candidate to Beta or a draft Release, never rebuilding or copying accounts; Actions only."""
+"""Promote queued candidate to Beta or active Beta to Release without rebuilding; Actions only."""
 import hashlib
 import json
 import os
@@ -6,8 +6,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 
-candidate = os.environ["CANDIDATE_TAG"]
+candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
 if destination == "beta":
     required_source = "pre-beta"
@@ -15,18 +16,47 @@ elif destination == "release":
     required_source = "beta"
 else:
     raise ValueError("destination must be beta or release")
+# With no explicit tag, Beta chooses the newest *successfully queued* build.
+# Release chooses the active Beta pointer; neither choice skips verification.
+if not candidate and destination == "beta":
+    releases = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "100", "--json", "tagName,createdAt"], text=True))
+    for item in sorted(releases, key=lambda obj: obj.get("createdAt", ""), reverse=True):
+        proposed = item.get("tagName", "")
+        if not re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}", proposed):
+            continue
+        detail = json.loads(subprocess.check_output(
+            ["gh", "release", "view", proposed, "--json", "assets"], text=True))
+        if any(asset.get("name") == "queued-strato.json" for asset in detail.get("assets", [])):
+            candidate = proposed
+            break
+    if not candidate:
+        raise ValueError("no successfully queued STRATO pre-beta candidate found")
+if not candidate and destination == "release":
+    with tempfile.TemporaryDirectory() as directory:
+        subprocess.run(["gh", "release", "download", "channel-beta", "--dir", directory,
+                        "--pattern", "channel.json"], check=True)
+        candidate = json.loads((Path(directory) / "channel.json").read_text())["tag"]
 if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
-# Only promote what is currently approved on the preceding channel.
-# A built candidate that was never manually activated is not eligible.
-pointer = "channel-" + required_source
+# Pre-beta is a build queue, NOT a public client channel or running server.
+# A candidate is eligible for Beta only after the queue upload succeeded.
 Path("dist").mkdir(exist_ok=True)
-subprocess.run(["gh", "release", "download", pointer, "--dir", "dist",
-                "--pattern", "channel.json"], check=True)
-approved = json.loads(Path("dist/channel.json").read_text())
-if approved.get("format") != 1 or approved.get("channel") != required_source or approved.get("tag") != candidate:
-    raise ValueError(f"promote the active {required_source} candidate only; activate/test it first")
-(Path("dist") / "channel.json").unlink()
+if destination == "beta":
+    subprocess.run(["gh", "release", "download", candidate, "--dir", "dist",
+                    "--pattern", "queued-strato.json"], check=True)
+    receipt = json.loads(Path("dist/queued-strato.json").read_text())
+    if receipt != {"format": 1, "target": "strato", "candidate": candidate}:
+        raise ValueError("candidate is not verified in the STRATO pre-beta queue")
+    (Path("dist") / "queued-strato.json").unlink()
+else:
+    pointer = "channel-beta"
+    subprocess.run(["gh", "release", "download", pointer, "--dir", "dist",
+                    "--pattern", "channel.json"], check=True)
+    approved = json.loads(Path("dist/channel.json").read_text())
+    if approved.get("format") != 1 or approved.get("channel") != "beta" or approved.get("tag") != candidate:
+        raise ValueError("release must use the currently activated Beta candidate")
+    (Path("dist") / "channel.json").unlink()
 names = ["mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz", "mkwom.exe",
          "deploy_server.py", "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
 args = ["gh", "release", "download", candidate, "--dir", "dist"]
@@ -41,7 +71,15 @@ info = json.loads(Path("dist/build-info.json").read_text())
 if not re.fullmatch(r"[a-f0-9]{40}", info["source_sha"]):
     raise ValueError("invalid candidate commit")
 tag = (f"beta-{os.environ['GITHUB_RUN_ID']}-{info['source_sha'][:12]}" if destination == "beta"
-       else os.environ["RELEASE_VERSION"])
+       else os.environ.get("RELEASE_VERSION", "").strip())
+if destination == "release" and not tag:
+    existing = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft"], text=True))
+    versions = [(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                for item in existing if not item.get("isPrerelease") and not item.get("isDraft")
+                if (m := re.fullmatch(r"v([0-9]+)\\.([0-9]+)\\.([0-9]+)", item.get("tagName", "")))]
+    major, minor, patch = max(versions, default=(0, 1, 0))
+    tag = f"v{major}.{minor}.{patch + 1}"
 if destination not in ("beta", "release") or (destination == "release" and
         not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
     raise ValueError("Release version must look like v0.1.0")
@@ -78,7 +116,7 @@ The optional `MKWOM-Patch-{tag}-windows-x64.zip` asset supports offline/advanced
 No PowerShell or command prompt is required for normal installation.
 
 The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.
-The patcher checks hashes and preserves backups, saves and config for uninstall. Run the game through MKWOM for managed updates.
+The patcher checks hashes and preserves backups, saves and config for uninstall. After setup, start mkw.exe directly; MKWOM checks updates automatically.
 
 ## Compatibility
 

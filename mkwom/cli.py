@@ -17,6 +17,8 @@ from .installer import install, uninstall, read_json, json_write, game_closed, v
 
 REPO = "ItsJustLiliana/MKWOM"
 CHANNELS = ("pre-beta", "beta", "release")
+# Official community lobby: no Arch/home-server fallback.
+COMMUNITY_ENDPOINT = "31.70.192.231:18443"
 
 
 def download(url: str, limit: int) -> bytes:
@@ -78,13 +80,13 @@ def update_status(game: Path, channel: str) -> dict:
             "patch_update": installed.get("version") != manifest["version"], "channel": channel}
 
 
-def update(game: Path, channel: str):
+def update(game: Path, channel: str, *, force: bool = False):
     game_closed()
     manifest = fetch_channel(channel)
     if manifest.get("installer_version") != __version__:
         raise ValueError("a new patcher is required; download it from the repository Releases page")
     old = read_json(game / ".mkwom/installed.json", {})
-    if old.get("version") == manifest["version"]:
+    if old.get("version") == manifest["version"] and not force:
         verify(game, old)
         print("MKWOM is up to date.")
     else:
@@ -102,11 +104,9 @@ def update(game: Path, channel: str):
         print("MKWOM patch updated.")
     settings = read_json(game / ".mkwom/settings.json", {})
     settings["channel"] = channel
-    # Channel endpoint is controlled by the channel publisher; current setup can keep its saved endpoint.
-    if manifest.get("endpoint") and settings.get("endpoint_mode") != "custom" and not (
-        settings.get("endpoint") and "endpoint_mode" not in settings
-    ):
-        settings["endpoint"] = endpoint(manifest["endpoint"])
+    # Pin the official STRATO lobby; overwrite legacy Arch/saved endpoint values.
+    settings["endpoint"] = COMMUNITY_ENDPOINT
+    settings["endpoint_mode"] = "channel"
     json_write(game / ".mkwom/settings.json", settings)
 
 
@@ -124,14 +124,7 @@ def launch(game: Path):
         raise ValueError("install the MKWOM patch first")
     verify(game, installed)
     settings = read_json(game / ".mkwom/settings.json", {})
-    ini = ini_values(game / "mkw.ini")
-    data = Path(ini.get("GAME_DIR") or str(game))
-    if not data.is_absolute():
-        data = game / data
-    active = ini_values(data / "mkw.ini")
-    address = settings.get("endpoint") or active.get("ONLINE_SERVER")
-    if not address:
-        raise ValueError("no community endpoint configured; operator must configure this channel first")
+    address = COMMUNITY_ENDPOINT
     env = dict(os.environ, MKW_ONLINE="1", MKW_ONLINE_SERVER=endpoint(address), MKW_SERVER_HOST="0",
                MKWOM_MANAGED="1", MKW_UPDATE_CHECK="0")
     # The wrapper owns patch updates; the upstream in-game updater would replace the patched runtime.
@@ -169,10 +162,12 @@ def main(argv=None):
             uninstall(game)
             print("Original runtime restored; saves, profiles and INI were preserved.")
         elif a.command == "configure":
-            settings["endpoint"] = a.endpoint
-            settings["endpoint_mode"] = "custom"
+            if a.endpoint != COMMUNITY_ENDPOINT:
+                raise ValueError("MKWOM only supports the official STRATO multiplayer server")
+            settings["endpoint"] = COMMUNITY_ENDPOINT
+            settings["endpoint_mode"] = "channel"
             json_write(game / ".mkwom/settings.json", settings)
-            print("Local endpoint configured.")
+            print("Official MKWOM STRATO server configured.")
         elif a.command == "status":
             state = read_json(game / ".mkwom/installed.json", {})
             print(json.dumps({"patch": state.get("version"), "upstream": state.get("upstream"),

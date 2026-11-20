@@ -25,8 +25,6 @@ def session_path(game: Path) -> Path:
 def protect_for_game(game: Path, access_token: str, channel: str) -> None:
     if os.name != "nt":
         raise OSError("Windows DPAPI is required for saved game sessions")
-    if channel != "pre-beta":
-        raise ValueError("No native game authentication endpoint for this channel")
     if not re.fullmatch(r"[a-f0-9]{64}", access_token):
         raise ValueError("Invalid account session")
     raw = (channel + "\n" + access_token).encode("ascii")

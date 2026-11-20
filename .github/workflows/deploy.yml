@@ -8,6 +8,9 @@ on:
       environment:
         type: string
         required: true
+      restart_if_unchanged:
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -28,11 +31,11 @@ jobs:
           LOBBY_PORT: ${{ vars.LOBBY_PORT }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
           test "$AUTO_DEPLOY" = true || { echo "::error::Stage is not enabled. Set AUTO_DEPLOY=true only after initial host setup."; exit 1; }
-          for key in DEPLOY_ROOT DEPLOY_UNIT LISTEN_HOST LOBBY_PORT DEPLOY_HOST DEPLOY_USER TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET; do
+          for key in DEPLOY_ROOT DEPLOY_UNIT LISTEN_HOST LOBBY_PORT DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_SSH_KNOWN_HOSTS; do
             test -n "${!key}" || { echo "::error::Missing required stage setting: $key"; exit 1; }
           done
       - name: Download verified server
@@ -47,12 +50,29 @@ jobs:
           # Use reviewed deployment code from main for older immutable releases.
           cp ../tools/deploy_server.py ./deploy_server.py
           test -s ./deploy_server.py
-      - uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-actions
-      - name: Deploy over administrator tailnet
+      - name: Set up pinned-key SSH (STRATO only)
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
+          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+      - name: Check pinned host (no deployment)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          test "$DEPLOY_HOST" = "31.70.192.231"
+          test "$DEPLOY_USER" = "mkwom"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \
+              -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" true
+      - name: Deploy to STRATO over verified SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -60,5 +80,8 @@ jobs:
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}
           LOBBY_PORT: ${{ vars.LOBBY_PORT }}
+          DEPLOY_SSH_KEY_PATH: ${{ runner.temp }}/mkwom-ssh/id_ed25519
+          DEPLOY_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/mkwom-ssh/known_hosts
+          RESTART_IF_UNCHANGED: ${{ inputs.restart_if_unchanged }}
         run: |
           python3 tools/remote_deploy.py

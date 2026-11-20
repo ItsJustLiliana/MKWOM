@@ -9669,8 +9669,8 @@ index 0000000..18cc1ef
 +    if (!CryptUnprotectData(&input, NULL, NULL, NULL, NULL, CRYPTPROTECT_UI_FORBIDDEN, &output)) return 0;
 +    char access[65] = {0};
 +    int ok = 0;
-+    if (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) {
-+        memcpy(access, output.pbData + 9, 64);
++    size_t offset = (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\\n", 9)) ? 9 : (output.cbData == 69 && !memcmp(output.pbData, "beta\\n", 5)) ? 5 : (output.cbData == 72 && !memcmp(output.pbData, "release\\n", 8)) ? 8 : 0;
++    if (offset) { memcpy(access, output.pbData + offset, 64);
 +        ok = 1;
 +        for (int i = 0; i < 64; i++)
 +            if (!((access[i] >= '0' && access[i] <= '9') || (access[i] >= 'a' && access[i] <= 'f'))) ok = 0;
@@ -9682,7 +9682,7 @@ index 0000000..18cc1ef
 +    ok = 0;  // A valid local token is NOT a successful remote login.
 +    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 +                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-+    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom.liliananuzohra.com", 443, 0) : NULL;
++    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom-api.liliananuzohra.com", 443, 0) : NULL;
 +    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
 +                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
 +    char body[96];

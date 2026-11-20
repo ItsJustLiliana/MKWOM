@@ -1,47 +1,46 @@
-name: Test Arch SSH access (no deployment)
+name: Test STRATO SSH access (no deployment)
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   preflight:
-    name: Read-only Tailscale connection test
+    name: Read-only VPS SSH and service preflight
     runs-on: ubuntu-24.04
     environment: pre-beta
     steps:
-      - name: Validate pre-beta settings
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
-          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
-          DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
-          LISTEN_HOST: ${{ vars.LISTEN_HOST }}
-          LOBBY_PORT: ${{ vars.LOBBY_PORT }}
-        shell: bash
-        run: |
-          for key in DEPLOY_HOST DEPLOY_USER TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET DEPLOY_ROOT DEPLOY_UNIT LISTEN_HOST LOBBY_PORT; do
-            test -n "${!key}" || { echo "::error::Missing pre-beta setting: $key"; exit 1; }
-          done
-          [[ "$DEPLOY_ROOT" == /* && "$DEPLOY_ROOT" != "/" ]]
-          [[ "$DEPLOY_UNIT" =~ ^[a-zA-Z0-9_.-]+\.service$ ]]
-          [[ "$LOBBY_PORT" =~ ^[0-9]+$ ]]
-      - uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-actions
-      - name: Verify Arch service remotely (read-only)
+      - name: Validate STRATO deployment configuration
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
-          login="$DEPLOY_USER@$DEPLOY_HOST"
-          echo "Checking access to configured Arch systemd user service..."
-          tailscale ssh "$login" "systemctl --user is-active '$DEPLOY_UNIT' && test -f '$DEPLOY_ROOT/server/pki/ca.der' && test -x '$DEPLOY_ROOT/build/server/mkw-server' && systemctl --user show '$DEPLOY_UNIT' -p WorkingDirectory -p ExecStart && sha256sum '$DEPLOY_ROOT/build/server/mkw-server'"
-          echo "Read-only Tailscale SSH preflight passed. No service was stopped or updated."
+          test "$DEPLOY_HOST" = "31.70.192.231"
+          test "$DEPLOY_USER" = "mkwom"
+          test "$DEPLOY_ROOT" = "/home/mkwom/projects/MKWOM-server"
+          test "$DEPLOY_UNIT" = "mkw-lobby.service"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_SSH_KNOWN_HOSTS"
+          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
+          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+      - name: Verify STRATO service remotely (read-only)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \
+            -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'systemctl --user is-active mkw-lobby.service && test -f /home/mkwom/projects/MKWOM-server/server/pki/ca.der && test -x /home/mkwom/projects/MKWOM-server/build/server/mkw-server && sha256sum /home/mkwom/projects/MKWOM-server/build/server/mkw-server'
+          echo "Read-only STRATO SSH preflight passed. No service updated."

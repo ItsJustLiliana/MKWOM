@@ -1,8 +1,4 @@
-"""Regression guards for the manual, fail-closed promotion pipeline.
-
-These tests intentionally inspect the checked-in workflows as text: no workflow may
-silently re-enable automatic production deployment by editing a YAML trigger.
-"""
+"""Regression guards for automatic STRATO queue + manual Beta and Release promotions."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,28 +8,37 @@ def contents(name):
     return (ROOT / name).read_text(encoding="utf-8")
 
 
-def test_push_build_does_not_deploy_or_move_live_channels():
+def test_push_queues_on_strato_but_never_activates_live_channels():
     workflow = contents(".github/workflows/build.yml")
     assert "branches: [main, pre-beta]" in workflow
+    assert "queue-strato:" in workflow
+    assert "tools/queue_strato.py" in workflow
+    assert "needs: [publish]" in workflow
     assert "uses: ./.github/workflows/deploy.yml" not in workflow
     assert "uses: ./.github/workflows/channel.yml" not in workflow
-    assert "Publish tested candidate" in workflow
 
 
-def test_prebeta_requires_manual_dispatch_then_deploy_then_activate():
-    workflow = contents(".github/workflows/prebeta.yml")
+def test_prebeta_has_no_manual_activation_or_public_channel():
+    assert not (ROOT / ".github/workflows/prebeta.yml").exists()
+    assert 'channel: pre-beta' not in contents(".github/workflows/promote.yml")
+    assert 'if channel not in ("beta", "release")' in contents("tools/activate_channel.py")
+
+
+def test_beta_and_release_each_have_a_manual_promotion_button():
+    workflow = contents(".github/workflows/promote.yml")
     assert "workflow_dispatch:" in workflow
+    assert "options: [beta, release]" in workflow
     assert "uses: ./.github/workflows/deploy.yml" in workflow
-    assert "environment: pre-beta" in workflow
-    assert "needs: [validate, deploy]" in workflow
-    assert "channel: pre-beta" in workflow
+    assert "channel: beta" in workflow
+    assert "channel: release" in workflow
+    assert "needs: promote" in workflow
 
 
-def test_release_does_not_deploy_on_publication_event():
+def test_release_only_publishes_approved_beta_without_second_deployment():
     workflow = contents(".github/workflows/release.yml")
     assert "workflow_dispatch:" in workflow
+    assert "uses: ./.github/workflows/deploy.yml" not in workflow
     assert "release:\n    types: [published]" not in workflow
-    assert "needs: [validate, deploy]" in workflow
 
 
 def test_deploy_has_no_bypass_button_and_fails_without_configuration():
@@ -44,12 +49,12 @@ def test_deploy_has_no_bypass_button_and_fails_without_configuration():
     assert "exit 1" in workflow
 
 
-def test_beta_and_release_promotion_restrict_source_stage():
+def test_beta_requires_queued_receipt_and_release_requires_active_beta():
     script = contents("tools/promote.py")
     assert 'required_source = "pre-beta"' in script
     assert 'required_source = "beta"' in script
+    assert "queued-strato.json" in script
     assert 'approved.get("tag") != candidate' in script
-    assert "current" in script or "active" in script
 
 
 def test_channel_pointer_carries_immutable_tag():

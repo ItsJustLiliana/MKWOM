@@ -23,7 +23,7 @@ jobs:
       - run: python -m pip install -e ".[test-server]" pytest==8.4.2 ruff==0.14.14
       - run: python -m pytest -q
       - run: ruff check mkwom tools tests server
-      - name: Validate Arch bootstrap shell script
+      - name: Validate legacy bootstrap shell syntax
         if: runner.os == 'Linux'
         run: bash -n scripts/setup_arch_accounts_prebeta.sh scripts/setup_arch_lobby_prebeta.sh
   client:
@@ -77,7 +77,7 @@ jobs:
       - run: python -m PyInstaller --onefile --windowed --name mkwom --paths . tools/entry.py
       - run: ./dist/mkwom.exe --help
       - name: Check graphical Tkinter runtime is available
-        run: python -c "import tkinter; import mkwom.gui; import mkwom.discovery"
+        run: python -c "import tkinter; import mkwom.gui; import mkwom.wizard; import mkwom.discovery"
       - uses: actions/upload-artifact@v7
         with:
           name: patcher
@@ -112,3 +112,50 @@ jobs:
         run: |
           gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease --latest=false \
             --title "$TAG" --notes "AI-assisted MKWOM candidate. Automated patch round-trip and server protocol checks passed. Real two-PC races still require operator testing."
+
+  queue-strato:
+    name: Queue tested build on STRATO (no activation)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [publish]
+    runs-on: ubuntu-24.04
+    environment: pre-beta
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download and verify immutable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ needs.publish.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$CANDIDATE" --dir dist --pattern 'mkwom-server-linux-x64.tar.gz' --pattern 'SHA256SUMS'
+          cd dist
+          grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
+      - name: Configure pinned STRATO SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
+          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
+          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+      - name: Store candidate in STRATO pending queue
+        env:
+          CANDIDATE: ${{ needs.publish.outputs.tag }}
+          DEPLOY_SSH_KEY_PATH: ${{ runner.temp }}/mkwom-ssh/id_ed25519
+          DEPLOY_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/mkwom-ssh/known_hosts
+        run: python3 tools/queue_strato.py
+      - name: Mark candidate as queued
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ needs.publish.outputs.tag }}
+        run: |
+          printf '{"format":1,"target":"strato","candidate":"%s"}\n' "$CANDIDATE" > dist/queued-strato.json
+          gh release upload "$CANDIDATE" dist/queued-strato.json

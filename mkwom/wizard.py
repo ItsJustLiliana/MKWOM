@@ -81,8 +81,12 @@ def uninstall_mkwom(game: Path, report=None) -> str:
         report(15, "Restoring original game files")
     uninstall(game)
     if report:
-        report(85, "Removing the saved in-game session bridge")
+        report(85, "Removing MKWOM's game helper and saved in-game session")
     remove_game_session(game)
+    updater = game / ".mkwom" / "updater.exe"
+    if updater.is_symlink():
+        raise ValueError("Refusing to remove a linked updater")
+    updater.unlink(missing_ok=True)
     if report:
         report(100, "Original files restored, saves preserved")
     return "Uninstall complete"

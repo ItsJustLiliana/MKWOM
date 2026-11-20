@@ -93,3 +93,30 @@ Before treating competitive ratings as trusted, require independent server-side
 race outcome verification, abuse detection, identity/session binding, and
 per-mode integrity tests with adversarial clients. Do not label PR #20 ready for
 production on the strength of score-API tests alone.
+
+## Race / Knockout Tour / Battle and built-in Hacks (20 November)
+
+For **each** of Beta and Release, the account API exposes independent Race,
+Knockout Tour and Battle score namespaces. Each mode's displayed account rating
+starts at **3000** and adds its own recorded Elo deltas. The API still returns
+`total_points` as the accumulated change; `rating` is the derived display
+value when a specific `game_mode` is requested. This is not yet a verified
+replacement for the game's native per-mode rating calculation. Legacy records
+keep their original unclassified mode.
+
+The source preparation pipeline now applies
+`patches/online-cheat-guard.patch` **after** the pinned multiplayer patch.
+When `MKW_ONLINE` is active it hides the in-game Hacks tab, masks built-in
+Hacks settings (including ini and environment-sourced values) to inactive,
+blocks changes via `cfg_set`, and unfreezes/block-scripts the F3/F4
+freeze/step hack. Offline settings remain unchanged. This does **not** prove
+protection from modified executables, memory editors, or third-party mods.
+
+**Outstanding acceptance blocker:** the existing native referee recognizes
+Knockout sections, but the Battle request/finish protocol has not been
+identified or independently validated. The account/launcher/ledger is ready to
+store Battle results; the actual native game server cannot be claimed to
+correctly produce Battle-mode events yet. Battle scores must not be considered
+operational until two-PC Battle race captures/tests prove the classification.
+The full dual-generation live handoff remains blocked on its separate protocol
+and deployment acceptance work.

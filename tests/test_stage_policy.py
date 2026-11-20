@@ -98,8 +98,9 @@ def test_beta_and_release_do_not_restart_unchanged_server():
 
 def test_stable_release_shows_only_player_downloads():
     script = contents("tools/promote.py")
-    assert 'release_assets = [Path("dist") / n for n in names] if destination == "beta" else []' in script
-    assert 'MKWOM-Patcher-{tag}.exe' in script
+    assert 'release_assets = [Path("dist") / n for n in names if n != raw_exe] if destination == "beta" else []' in script
+    assert 'MKWOM-{tag}.exe' in script
+    assert 'MKWOM-Patcher-{tag}.exe' not in script
     assert 'MKWOM-Patch-{tag}-windows-x64.zip' in script
 
 

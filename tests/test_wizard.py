@@ -1,5 +1,4 @@
 """The guided wizard must not start the game or edit it before Install approval."""
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

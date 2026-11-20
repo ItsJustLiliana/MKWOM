@@ -27,8 +27,7 @@ downloads and applies the patch transactionally, then starts the game. On later 
 checks for new patches before launching. **Uninstall patch** restores verified original runtime files and retains saves.
 
 A working community endpoint is needed. Existing installations can use their saved endpoint; the operator may
-configure another endpoint in Connection settings. A public default endpoint will be provided by the release
-channel only after its server deployment is ready. The native graphical setup is currently Windows-only.
+configure another endpoint in Connection settings. The official built-in endpoint is STRATO; client updates must be verified against the new CA before public promotion. The native graphical setup is currently Windows-only.
 For automated scripts, the same executable retains its command-line interface with arguments, e.g.:
 
 ```powershell
@@ -37,9 +36,7 @@ For automated scripts, the same executable retains its command-line interface wi
 
 The managed runtime connects automatically and shows friends and connection status, without the server-address
 and local-host controls. Endpoint configuration is still technically discoverable in local settings/network tools;
-this is not IP obfuscation. The current saved endpoint is preserved so existing account identities are not silently
-changed. Do **not** change to the future VPS hostname until authenticated profile-alias migration is implemented
-and tested; preserving server data alone does not migrate the client profile's address-derived key.
+this is not IP obfuscation. The official community endpoint is now the STRATO VPS at `31.70.192.231:18443`. The old Arch endpoint is no longer an automatic fallback. This is a fresh server with new test accounts and a new CA, so existing players must reinstall/update and verify their identities and friend codes.
 
 The patcher changes only verified runtime/setup files, with original backups under `.mkwom/`. It does not inject
 into a running process. Changes are journalled, checked before writing, and rolled back if a write fails. Close
@@ -54,14 +51,18 @@ The patcher itself requests a fresh download if its own required version changes
 **All server and client channel activations are manual:**
 
 1. Code on `main` builds and tests a new immutable **pre-beta candidate**. Nothing is deployed automatically.
-2. Click **Actions > Activate pre-beta on Arch (manual)**, select that candidate and verify the pre-beta server.
+2. Click **Actions > Activate pre-beta on STRATO (manual)**, select that candidate and verify the pre-beta server.
 3. When satisfied, click **Actions > Promote tested candidate > beta**. Only the **currently activated pre-beta** candidate can advance. After deployment and health checks, Beta's client channel is updated.
 4. After Beta testing, click **Promote tested candidate > release** using the **currently activated Beta** tag. This creates a **draft** stable GitHub Release; it does not deploy.
 5. Edit and publish the stable GitHub Release, then **click Actions > Activate published Release**. This is the separate manual Release deployment/activation step.
 
 Promotion copies tested binaries exactly (SHA-256 verified), never silently rebuilds or skips stages. A failed deployment leaves the prior channel unchanged. Account stores are separate and never copied across environments.
 
-**Current host:** Arch Linux. Start by bootstrapping an isolated pre-beta instance and its account API; three concurrent servers require independent networking/UDP/TURN. Later, swap the per-environment deployment target to STRATO. See [three-stage Arch setup](docs/three-stage-arch.md) and [operator instructions](docs/operations.md).
+**Current host:** STRATO Ubuntu 24.04 VPS. The Arch lobby and account tunnel are legacy only. See [STRATO migration and deployment](docs/strato-migration.md) and [operator instructions](docs/operations.md). Three concurrent channels require isolated networking/UDP/TURN and separate account stores.
+
+## STRATO deployment (official)
+
+The account API and native game-ticket endpoint are `https://mkwom-api.liliananuzohra.com`. The native game lobby uses `31.70.192.231:18443` directly; Cloudflare Tunnel is **only** for HTTPS account traffic. No live MKWOM service requires Arch Linux after verified cutover. GitHub Actions deployment uses pinned-host-key SSH to STRATO and remains opt-in until operator secrets, deployment variables, and multiplayer smoke tests pass. See [STRATO migration](docs/strato-migration.md).
 
 ## Server and future VPS
 

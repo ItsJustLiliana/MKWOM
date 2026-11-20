@@ -42,3 +42,71 @@ the coturn relay-port range are not implemented or verified here. The gateway
 is not wired to STRATO, and no production cutover is enabled. Full
 two-client NAT/TURN testing and authenticated native race-finish handoff are
 mandatory before activation.
+
+
+## Opt-in dual transport gateway service (not activated on STRATO)
+
+`tools/rolling_gateway_daemon.py` is now an executable, user-owned front
+end for the previously separate TCP and UDP proxy classes. It binds both
+public TCP listeners and all five public UDP ports, and exposes **only a local
+Unix control socket** with 0600 permissions. It applies a native `drain`
+marker to the old generation, verifies the new server's pinned TLS CA and
+HTTP/2 before switching, journals pending cutovers to prevent silent crash
+rollback, coordinates new TCP/UDP flow admission, and can return new sessions
+to a healthy previous generation. At the 3600-second cutoff, native generation
+units may stop once *both* transport proxies have retired the old generation.
+The separate score delivery worker must remain active until all native
+score-outbox events have been committed.
+
+Example operator-provided configuration (all paths, socket permissions, unit
+files and endpoint reachability must be verified first):
+
+```json
+{
+  "initial": "old",
+  "public": {"host": "127.0.0.1", "tcp": [18443,18444],
+             "udp": [3478,3479,10025,10125,33334]},
+  "control_socket": "/path/to/private/rolling.sock",
+  "state_file": "/path/to/private/rolling-state.json",
+  "generations": {
+    "old": {
+      "lobby": ["127.0.0.1",19443], "friends": ["127.0.0.1",19444],
+      "udp": [["127.0.0.1",13478],["127.0.0.1",13479],
+              ["127.0.0.1",11025],["127.0.0.1",11125],["127.0.0.1",13334]],
+      "data": "/path/to/old/server", "ca": "/path/to/old/server/pki/ca.der",
+      "unit": "mkw-old.service"
+    },
+    "new": {
+      "lobby": ["127.0.0.1",21443], "friends": ["127.0.0.1",21444],
+      "udp": [["127.0.0.1",15478],["127.0.0.1",15479],
+              ["127.0.0.1",13025],["127.0.0.1",13125],["127.0.0.1",15334]],
+      "data": "/path/to/new/server", "ca": "/path/to/new/server/pki/ca.der",
+      "unit": "mkw-new.service"
+    }
+  }
+}
+```
+
+The `public.host` above binds loopback **only**, for safe isolated testing.
+Do not switch it to a public bind while the current production listener still
+owns those ports. Two separate native server data stores and prepared
+systemd user units are prerequisites. An existing `rolling-state.json` whose
+`current` does not match the configured `initial`, or has a non-empty
+`pending` transition, intentionally prevents startup. An operator must
+inspect and reconcile live state rather than deleting the journal blindly.
+
+```sh
+python3 tools/rolling_gateway_daemon.py --config /path/to/private/rolling.json
+python3 tools/rolling_gateway_daemon.py --config /path/to/private/rolling.json --action status
+python3 tools/rolling_gateway_daemon.py --config /path/to/private/rolling.json --action switch --target new
+python3 tools/rolling_gateway_daemon.py --config /path/to/private/rolling.json --action rollback --target old
+```
+
+**Still required before live installation:** one-time migration of the
+existing public listener to private backends, independent auth/PKI and score
+worker lifecycle, actual session-bound UDP/NAT/TURN routing (the current
+UDP 5-tuple may change after NAT rebinding), native post-race client
+re-authentication/matchmaking handoff, real user-visible score acknowledgement,
+and two-PC tests with live races and friend joins. The gateway must not be
+advertised as zero-downtime gameplay until these are proven. No deploy
+workflow starts this service automatically.

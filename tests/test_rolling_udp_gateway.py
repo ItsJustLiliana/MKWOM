@@ -136,3 +136,39 @@ def test_udp_rollback_retains_old_and_new_flows_until_their_deadlines():
             for sock in socks:
                 sock.close()
     asyncio.run(scenario())
+
+
+def test_parallel_packets_from_one_player_reuse_single_udp_flow():
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        class Echo(asyncio.DatagramProtocol):
+            def connection_made(self, transport):
+                self.transport = transport
+            def datagram_received(self, data, address):
+                self.transport.sendto(data, address)
+        backend, _ = await loop.create_datagram_endpoint(Echo, local_addr=("127.0.0.1", 0))
+        port = backend.get_extra_info("sockname")[1]
+        gateway = RollingUDPGateway(UDPGeneration("old", (("127.0.0.1", port),) * 5))
+        try:
+            await gateway.start("127.0.0.1", (0, 0, 0, 0, 0))
+            client = ("127.0.0.1", 32111)
+            await asyncio.gather(*(gateway._forward(0, b"packet", client) for _ in range(30)))
+            assert len(gateway.flows) == 1
+            assert gateway._pending_packets == 0
+        finally:
+            await gateway.close()
+            backend.close()
+    asyncio.run(scenario())
+
+
+def test_udp_flood_pending_limit_is_bounded():
+    from tools.rolling_udp_gateway import _Frontend, MAX_PENDING_PACKETS
+    async def scenario():
+        class Dummy:
+            _pending_packets = MAX_PENDING_PACKETS
+            async def _receive(self, *_args):
+                raise AssertionError("UDP packets should be dropped at capacity")
+        gateway = Dummy()
+        _Frontend(gateway, 0).datagram_received(b"packet", ("127.0.0.1", 12345))
+        assert gateway._pending_packets == MAX_PENDING_PACKETS
+    asyncio.run(scenario())

@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from .cli import COMMUNITY_ENDPOINT
-from .installer import atom, read_json
+from .installer import atom
 
 
 def _set_section_value(lines: list[str], section: str, key: str, value: str) -> None:

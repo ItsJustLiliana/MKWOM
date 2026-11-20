@@ -312,9 +312,9 @@ class Launcher:
         race = channel_scores(channel, "race")
         knockout = channel_scores(channel, "knockout")
         battle = channel_scores(channel, "battle")
-        return (f"{channel.title()} scores | Race: {race['total_points']:+d} Elo "
-                f"({race['races']} races) | Knockout: {knockout['total_points']:+d} Elo "
-                f"({knockout['races']} races) | Battle: {battle['total_points']:+d} Elo "
+        return (f"{channel.title()} ratings | Race: {race['rating']} "
+                f"({race['races']} races) | Knockout Tour: {knockout['rating']} "
+                f"({knockout['races']} races) | Battle: {battle['rating']} "
                 f"({battle['races']} races). "
                 f"Overall (including legacy): {scores['total_points']:+d} Elo.")
 

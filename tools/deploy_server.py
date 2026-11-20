@@ -74,6 +74,8 @@ def main():
     p.add_argument("--unit", default="mkw-lobby.service")
     p.add_argument("--host", required=True, help="actual local listener address")
     p.add_argument("--port", type=int, default=18443)
+    p.add_argument("--restart-if-unchanged", action="store_true",
+                   help="Explicit Release promotion: restart and verify even when binary is unchanged")
     a = p.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", a.unit) or not 1024 <= a.port <= 65533:
         p.error("invalid service or port")
@@ -107,7 +109,22 @@ def main():
         metadata = unpack(a.archive, stage, a.sha256)
         if hashlib.sha256(exe.read_bytes()).hexdigest() == metadata["sha256"]:
             health(a.host, a.port, data / "pki/ca.der")
-            print("Server binary unchanged; no restart required.")
+            if a.restart_if_unchanged:
+                run("systemctl", "--user", "restart", a.unit)
+                last = None
+                for _ in range(15):
+                    try:
+                        health(a.host, a.port, data / "pki/ca.der")
+                        last = None
+                        break
+                    except (OSError, ValueError) as error:
+                        last = error
+                        time.sleep(1)
+                if last:
+                    raise last
+                print("Approved Release restart completed and verified.")
+            else:
+                print("Server binary unchanged; no restart required.")
             return
         # A short isolated boot proves executable/libc compatibility before stopping production.
         probe = stage / "probe"

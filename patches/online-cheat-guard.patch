@@ -85,3 +85,31 @@ diff --git a/runtime/ui/menu/settings_tabs.cpp b/runtime/ui/menu/settings_tabs.c
              snprintf(label, sizeof label, "  %s  ###tab%d", menu_text(kTabNames[k]), k);   // the id stays per language
              // the testing and shortcut tabs in the dim colour: the ones most players need come first and stand out
              bool quiet = k >= TAB_ADVANCED && k != g_tab;
+diff --git a/runtime/core/hacks/freeze.c b/runtime/core/hacks/freeze.c
+--- a/runtime/core/hacks/freeze.c
++++ b/runtime/core/hacks/freeze.c
+@@ -14,7 +14,8 @@
+ static _Atomic int64_t steps;   // frames still to let through while frozen
+ static int f3_was, f4_was;
+ 
+-void freeze_set(int on, int64_t n) {
++void freeze_set(int on, int64_t n) {
++    if (cfg_bool("MKW_ONLINE")) on = 0, n = 0;
+     atomic_store(&steps, n);
+     atomic_store(&frozen, on);
+     rt_log("freeze: %s%s", on ? "frozen" : "running", on && n ? " after the next frames" : "");
+@@ -28,7 +29,13 @@
+     f3_was = f3, f4_was = f4;
+ }
+ 
+-void freeze_present(void) {
++void freeze_present(void) {
++    // Prevent a paused offline frame (or script-triggered freeze) from persisting online.
++    if (cfg_bool("MKW_ONLINE")) {
++        atomic_store(&frozen, 0);
++        atomic_store(&steps, 0);
++        return;
++    }
+     keys();
+     if (!atomic_load(&frozen)) return;
+     if (atomic_load(&steps) > 0) {

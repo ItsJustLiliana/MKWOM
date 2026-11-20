@@ -22,6 +22,11 @@ def prepare(out: Path):
     patch = str(ROOT / "patches/multiplayer.patch")
     subprocess.run(["git", "-C", str(out), "apply", "--check", patch], check=True)
     subprocess.run(["git", "-C", str(out), "apply", patch], check=True)
+    # Disable the recomp's built-in Hacks tab and settings while online.
+    # Applied after the multiplayer patch so source integration stays version-pinned.
+    guard = str(ROOT / "patches/online-cheat-guard.patch")
+    subprocess.run(["git", "-C", str(out), "apply", "--check", guard], check=True)
+    subprocess.run(["git", "-C", str(out), "apply", guard], check=True)
 
 
 if __name__ == "__main__":

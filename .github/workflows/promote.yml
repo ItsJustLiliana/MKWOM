@@ -1,16 +1,16 @@
-name: Promote tested candidate
+name: Promote queued build to Beta or approved Beta to Release
 on:
   workflow_dispatch:
     inputs:
       candidate:
-        description: Immutable pre-beta or beta release tag
+        description: Queued pre-beta tag for Beta, or active beta tag for Release
         required: true
       destination:
         type: choice
         options: [beta, release]
         required: true
       release_version:
-        description: Version for a draft public Release (e.g. v0.1.0)
+        description: Version for published Release (e.g. v0.1.0)
         default: v0.1.0
 permissions:
   contents: write
@@ -40,7 +40,7 @@ jobs:
       contents: read
     with:
       tag: ${{ needs.promote.outputs.tag }}
-      environment: beta
+      environment: pre-beta
     secrets: inherit
   activate-beta:
     if: inputs.destination == 'beta'
@@ -49,3 +49,10 @@ jobs:
     with:
       tag: ${{ needs.promote.outputs.tag }}
       channel: beta
+  activate-release:
+    if: inputs.destination == 'release'
+    needs: promote
+    uses: ./.github/workflows/channel.yml
+    with:
+      tag: ${{ needs.promote.outputs.tag }}
+      channel: release

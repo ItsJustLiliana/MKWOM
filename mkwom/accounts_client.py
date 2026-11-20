@@ -95,7 +95,7 @@ def channel_scores(channel: str, game_mode: str | None = None) -> dict:
     """Authenticated score history for exactly the selected online channel."""
     if channel not in ("beta", "release"):
         raise AuthError("Scores are available separately for Beta and Release")
-    if game_mode is not None and game_mode not in ("versus", "knockout"):
+    if game_mode is not None and game_mode not in ("race", "knockout", "battle"):
         raise AuthError("Unsupported score game mode")
     saved = token()
     if not saved:

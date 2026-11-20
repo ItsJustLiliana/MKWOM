@@ -87,6 +87,7 @@ jobs:
     with:
       tag: ${{ needs.promote.outputs.tag }}
       channel: release
+      source_tag: ${{ needs.promote.outputs.candidate }}
   mark-latest:
     if: inputs.destination == 'release'
     needs: [promote, activate-release]

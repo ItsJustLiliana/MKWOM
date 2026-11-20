@@ -90,6 +90,13 @@ def connect():
         points INTEGER NOT NULL,
         PRIMARY KEY(channel, race_id, user_id),
         FOREIGN KEY(channel, race_id) REFERENCES race_results(channel, race_id))""")
+    # Earlier PR builds had channel-only scores. Preserve these records without
+    # falsely attributing them to a game mode: they remain legacy/unclassified.
+    for table in ("race_results", "race_scores"):
+        columns = {column[1] for column in connection.execute("PRAGMA table_info(" + table + ")")}
+        if "game_mode" not in columns:
+            connection.execute("ALTER TABLE " + table + " ADD COLUMN game_mode TEXT NOT NULL DEFAULT 'legacy'")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_scores_channel_mode ON race_scores(user_id,channel,game_mode)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_race_scores_user_channel ON race_scores(user_id,channel)")
     return connection
 

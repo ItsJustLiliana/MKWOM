@@ -100,6 +100,7 @@ class RollingUDPGateway:
         self.frontends: list[asyncio.DatagramTransport] = []
         self._watchdog = None
         self._switch_lock = asyncio.Lock()
+        self._cutover_gate: asyncio.Event | None = None
 
     async def start(self, host: str, public_ports: tuple[int, ...]) -> None:
         if self.frontends or len(public_ports) != PORT_COUNT or len(set(public_ports)) != PORT_COUNT:
@@ -118,6 +119,10 @@ class RollingUDPGateway:
     async def _forward(self, index: int, data: bytes, client: tuple[str, int]):
         key = (index, client[0], client[1])
         flow = self.flows.get(key)
+        if flow is None:
+            if self._cutover_gate is not None:
+                await self._cutover_gate.wait()
+            flow = self.flows.get(key)
         if flow is None:
             if len(self.flows) >= MAX_FLOWS:
                 return

@@ -22,17 +22,17 @@ GitHub **Actions → Promote queued build to Beta or approved Beta to Release �
 - Destination: `beta`
 - Candidate: leave empty for the newest successfully queued build, or supply a specific `pre-beta-<run>-<sha12>` tag
 
-Actions verifies the queue receipt, copies the *same build artifacts* into an immutable Beta prerelease, deploys the approved server binary to the **single live STRATO lobby**, checks TLS/health, and only then updates `channel-beta`. If deployment fails, the channel pointer is unchanged. The live service briefly restarts for a changed binary; schedule approvals accordingly.
+Actions verifies the queue receipt, copies the *same build artifacts* into a numbered immutable GitHub prerelease (`v0.1.2-beta.1`, `v0.1.2-beta.2`, and so on), deploys the approved server binary to the **single live STRATO lobby**, checks TLS/health, and only then updates `channel-beta`. If deployment fails, the channel pointer is unchanged. The live service briefly restarts for a changed binary; schedule approvals accordingly.
 
 ### Beta → Release
 
 Run the *same* workflow with:
 
 - Destination: `release`
-- Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `beta-<run>-<sha12>` tag
-- Release version: `vX.Y.Z`
+- Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `vX.Y.Z-beta.N` tag (legacy `beta-<run>-<sha12>` tags also work)
+- Release version: leave blank to promote `v0.1.2-beta.N` to `v0.1.2` (legacy Beta tags use the next stable patch version)
 
-It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart the same STRATO lobby, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
+It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart the same STRATO lobby, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. After publishing `v0.1.2`, the next Beta becomes `v0.1.3-beta.1`. Existing Beta prereleases stay available for rollback. Beta releases keep internal verification and deployment assets; the stable public Release exposes only the versioned Windows patcher EXE and optional patch ZIP. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
 
 ## One-time GitHub environment setup
 

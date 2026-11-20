@@ -6,7 +6,7 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .cli import CHANNELS, COMMUNITY_ENDPOINT, launch, update, update_status
+from .cli import COMMUNITY_ENDPOINT, launch, update, update_status
 from .accounts_client import AuthError, api_base, authenticate, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall

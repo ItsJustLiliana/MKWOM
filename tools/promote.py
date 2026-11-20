@@ -143,12 +143,13 @@ args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets
 args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
 if destination == "release":
     # Rerun safely after a deployment failure, without duplicating v0.1.1.
-    existing = subprocess.run(
-        ["gh", "release", "view", tag, "--json", "isDraft,isPrerelease,targetCommitish,body,assets"],
-        capture_output=True, text=True,
-    )
-    if existing.returncode == 0:
-        found = json.loads(existing.stdout)
+    listed = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"], text=True))
+    matching = [r for r in listed if r["tagName"] == tag]
+    if matching:
+        found = json.loads(subprocess.check_output(
+            ["gh", "release", "view", tag, "--json", "isDraft,isPrerelease,targetCommitish,body,assets"],
+            text=True))
         if (found.get("isPrerelease") or
                 found.get("targetCommitish") != info["source_sha"] or
                 ("`" + candidate + "`") not in found.get("body", "") or

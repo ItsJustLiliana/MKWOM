@@ -72,3 +72,17 @@ def test_referee_uses_server_chosen_session_rule_for_all_three_score_modes():
     assert 'rule == 5 ? "battle" : "race"' in session
     assert 'rule == 6 ? "knockout"' in session
     assert 'session->attrs' in session
+
+
+def test_drain_rejects_new_races_in_existing_lobby_before_commit():
+    gamesync = source("srv_gamesync.c")
+    start = gamesync.index("static int run_writes(")
+    end = gamesync.index("static int def_find(", start)
+    transaction = gamesync[start:end]
+    assert "if (srv_draining())" in transaction
+    assert 'strncmp(path, "@@RefereeRequest/", 17)' in transaction
+    assert 'strcmp(s->referee.races[j].request_id, req)' in transaction
+    assert "if (!already_started)" in transaction
+    assert "docs_rollback(&s->docs);" in transaction
+    assert "return ST_UNAVAILABLE;" in transaction
+    assert transaction.index("if (srv_draining())") < transaction.index("docs_end(&s->docs, now)")

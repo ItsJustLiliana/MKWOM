@@ -35,3 +35,40 @@ When a Release with a **different server binary** is approved:
 Do **not** enable a purported blue/green feature yet, open additional public ports or run two production writers against the same `server/` data directory. The current deployment **still interrupts running races when a binary changes**. Use a quiet maintenance window for server-changing promotions until the acceptance gates above pass. Stable client-only releases already avoid that interruption.
 
 The targeted 60-minute policy is implemented and unit-tested in `tools/rolling_drain.py` but is deliberately not called from production.
+
+## Per-account scores: hard-separated Beta and Release
+
+The account API now stores **one identity** but two isolated score namespaces:
+`(account_id, beta)` and `(account_id, release)`. Each channel has its own
+race history and accumulated *referee Elo change*, not a shared global score.
+The same race identifier may appear in both channels without collision.
+
+- `GET /scores?channel=beta` and `GET /scores?channel=release` require the
+  player's existing account Bearer token and expose only their own records.
+- The native referee calculates the final Elo delta; when
+  `MKWOM_SCORE_CHANNEL=beta` or `release` is explicitly configured,
+  native sessions queue completed results under that generation's own
+  `<data>/score-outbox/<race-id>.json` using an atomic write.
+- `tools/score_delivery.py --data /path/to/generation/server --channel beta`
+  sends queued events to the **loopback** account API at
+  `http://127.0.0.1:9081`. A successful durable acknowledgement deletes
+  the pending event. Temporary failures leave it queued for retries.
+- The account API accepts `POST /internal/race-result` only with a valid
+  independent per-channel server key: `MKWOM_SCORE_BETA_KEY` or
+  `MKWOM_SCORE_RELEASE_KEY`. A Beta writer cannot mutate Release scores.
+- Duplicate submissions of an identical event are acknowledged but not
+  counted again; conflicting replays are rejected. The SQLite write uses
+  `BEGIN IMMEDIATE` and channel-scoped uniqueness constraints.
+
+**Deployment gate:** These components are not yet installed or configured on
+STRATO. The score writer keys must be provisioned as private secrets for the
+account API and corresponding generation sender, never the Windows client.
+The native process also needs an explicit `MKWOM_SCORE_CHANNEL`. The
+delivery worker must be installed as a persistent per-generation service and
+must demonstrate server restart/retry and actual authenticated two-PC race
+tests before turning this on. **Do not promote or merge PR #20 yet.**
+
+The accounting contract currently uses the native referee's *rounded Elo
+change* as `points`; it does not purport to preserve unimplemented
+per-Grand-Prix tournament points. Existing historical races that were only
+in memory cannot be recovered from this new score ledger.

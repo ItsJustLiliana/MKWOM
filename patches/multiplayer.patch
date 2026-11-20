@@ -22958,7 +22958,7 @@ index 0000000..b955046
 +        sock.close()
 +    data = tmp_path / "second-generation"
 +    data.mkdir()
-+    (data / "settings.txt").write_text("login_limit=64\\n")
++    (data / "settings.txt").write_text("login_limit=64\n")
 +    logfile = tmp_path / "second-server.log"
 +    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
 +            "--udp-ports", ",".join(map(str, udp_ports)), "--data", str(data), "--seconds", "20"]
@@ -22982,7 +22982,7 @@ index 0000000..b955046
 +            for stun in udp_ports[:2]:
 +                sock.sendto(request, ("127.0.0.1", stun))
 +                reply = sock.recv(512)
-+                assert reply[:2] == b"\\x01\\x01" and reply[8:20] == request[8:20]
++                assert reply[:2] == b"\x01\x01" and reply[8:20] == request[8:20]
 +        # The original server remains healthy throughout the second server's lifetime.
 +        with socket.create_connection(("127.0.0.1", PORT), timeout=2):
 +            pass

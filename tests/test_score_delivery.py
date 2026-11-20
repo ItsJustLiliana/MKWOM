@@ -95,3 +95,18 @@ def test_channel_mismatch_and_symlink_fail_closed(setup, tmp_path):
         pytest.skip("Symlink privilege unavailable")
     with pytest.raises(ValueError):
         score_delivery.deliver_one(link, "beta", "http://127.0.0.1:9081", "ac" * 32)
+
+
+def test_missing_or_forged_game_mode_is_never_delivered(setup):
+    _, uid, outbox, _ = setup
+    path = event(outbox, "mode-invalid-1001", "beta", uid, 200)
+    payload = json.loads(path.read_text())
+    del payload["game_mode"]
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="game mode"):
+        score_delivery.deliver_one(path, "beta", "http://127.0.0.1:9081", "ac" * 32)
+    assert path.exists()
+    payload["game_mode"] = "custom-cheat-mode"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="game mode"):
+        score_delivery.deliver_one(path, "beta", "http://127.0.0.1:9081", "ac" * 32)

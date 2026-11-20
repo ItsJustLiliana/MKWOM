@@ -14,11 +14,9 @@ def test_reject_unsafe_account_server(monkeypatch, url):
 
 def test_prebeta_service_has_built_in_https_url(monkeypatch):
     monkeypatch.delenv("MKWOM_ACCOUNTS_URL", raising=False)
-    assert accounts_client.api_base("pre-beta") == "https://mkwom.liliananuzohra.com"
-    with pytest.raises(accounts_client.AuthError, match="after the secure"):
-        accounts_client.api_base("release")
-    with pytest.raises(accounts_client.AuthError, match="after the secure"):
-        accounts_client.api_base("beta")
+    assert accounts_client.api_base("pre-beta") == "https://mkwom-api.liliananuzohra.com"
+    assert accounts_client.api_base("release") == "https://mkwom-api.liliananuzohra.com"
+    assert accounts_client.api_base("beta") == "https://mkwom-api.liliananuzohra.com"
 
 
 def test_custom_https_account_url_override(monkeypatch):

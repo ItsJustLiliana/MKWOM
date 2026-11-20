@@ -87,3 +87,52 @@ def test_udp_flows_stay_on_old_generation_until_cutoff():
             first.close()
             second.close()
     asyncio.run(scenario())
+
+
+def test_udp_rollback_retains_old_and_new_flows_until_their_deadlines():
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        class Echo(asyncio.DatagramProtocol):
+            def __init__(self, marker):
+                self.marker = marker
+            def connection_made(self, transport):
+                self.transport = transport
+            def datagram_received(self, data, address):
+                self.transport.sendto(self.marker + data, address)
+        old, _ = await loop.create_datagram_endpoint(lambda: Echo(b"O"), local_addr=("127.0.0.1", 0))
+        new, _ = await loop.create_datagram_endpoint(lambda: Echo(b"N"), local_addr=("127.0.0.1", 0))
+        ports = []
+        for _ in range(5):
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as temp:
+                temp.bind(("127.0.0.1", 0))
+                ports.append(temp.getsockname()[1])
+        clock = [10.0]
+        gateway = RollingUDPGateway(UDPGeneration("old", (("127.0.0.1", old.get_extra_info("sockname")[1]),) * 5), clock=lambda: clock[0])
+        socks = []
+        try:
+            await gateway.start("127.0.0.1", tuple(ports))
+            async def exchange(payload):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setblocking(False)
+                sock.bind(("127.0.0.1", 0))
+                socks.append(sock)
+                await loop.sock_sendto(sock, payload, ("127.0.0.1", ports[0]))
+                return await asyncio.wait_for(loop.sock_recv(sock, 128), 2)
+            assert await exchange(b"one") == b"Oone"
+            await gateway.switch(UDPGeneration("new", (("127.0.0.1", new.get_extra_info("sockname")[1]),) * 5))
+            assert await exchange(b"two") == b"Ntwo"
+            await gateway.rollback("old")
+            assert await exchange(b"three") == b"Othree"
+            assert gateway.current.name == "old"
+            assert gateway.generations["old"].deadline is None
+            assert any(flow.generation.name == "new" for flow in gateway.flows.values())
+            clock[0] += 3600
+            assert await gateway.retire_due() == ["new"]
+            assert all(flow.generation.name == "old" for flow in gateway.flows.values())
+        finally:
+            await gateway.close()
+            old.close()
+            new.close()
+            for sock in socks:
+                sock.close()
+    asyncio.run(scenario())

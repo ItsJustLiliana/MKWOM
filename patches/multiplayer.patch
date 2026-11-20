@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1031 @@
+@@ -0,0 +1,1044 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9652,6 +9652,9 @@ index 0000000..18cc1ef
 +// decrypted by the Windows user who completed setup; it is not a plaintext token.
 +#ifdef _WIN32
 +static int mkwom_game_ticket(const char *code, char *ticket, size_t cap) {
++    // Diagnostic only: never log access tokens, HTTP headers, ticket bodies or friend codes.
++    ULONGLONG started = GetTickCount64();
++    rt_log("mkwom-diag: ticket begin");
 +    wchar_t path[MAX_PATH];
 +    DWORD npath = GetModuleFileNameW(NULL, path, MAX_PATH);
 +    if (!npath || npath >= MAX_PATH) { rt_log("mkwom: game session path unavailable"); return 0; }
@@ -9682,6 +9685,7 @@ index 0000000..18cc1ef
 +    LocalFree(output.pbData);
 +    SecureZeroMemory(encrypted, sizeof encrypted);
 +    if (!ok) { rt_log("mkwom: saved Windows session has an invalid format"); return 0; }
++    rt_log("mkwom-diag: DPAPI restored (%llu ms)", (unsigned long long)(GetTickCount64() - started));
 +    ok = 0;  // A valid local token is NOT a successful remote login.
 +    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 +                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
@@ -9698,12 +9702,17 @@ index 0000000..18cc1ef
 +    WinHttpSetTimeouts(req, 3000, 3000, 5000, 5000);
 +    DWORD reject_redirect = WINHTTP_DISABLE_REDIRECTS;
 +    WinHttpSetOption(req, WINHTTP_OPTION_DISABLE_FEATURE, &reject_redirect, sizeof reject_redirect);
++    ULONGLONG send_started = GetTickCount64();
 +    if (!WinHttpSendRequest(req, headers, (DWORD)-1L, body, (DWORD)body_n, (DWORD)body_n, 0)) {
-+        rt_log("mkwom: account ticket request send failed (winerr=%lu)", GetLastError());
++        rt_log("mkwom: account ticket request send failed (winerr=%lu), elapsed=%llu ms", GetLastError(),
++               (unsigned long long)(GetTickCount64() - send_started));
 +        goto close;
 +    }
++    rt_log("mkwom-diag: ticket send completed (%llu ms)", (unsigned long long)(GetTickCount64() - send_started));
++    ULONGLONG receive_started = GetTickCount64();
 +    if (!WinHttpReceiveResponse(req, NULL)) {
-+        rt_log("mkwom: account ticket response failed (winerr=%lu)", GetLastError());
++        rt_log("mkwom: account ticket response failed (winerr=%lu), elapsed=%llu ms", GetLastError(),
++               (unsigned long long)(GetTickCount64() - receive_started));
 +        goto close;
 +    }
 +    DWORD status = 0, sl = sizeof status;
@@ -9712,6 +9721,8 @@ index 0000000..18cc1ef
 +        rt_log("mkwom: account ticket HTTP status unavailable (winerr=%lu)", GetLastError());
 +        goto close;
 +    }
++    rt_log("mkwom-diag: ticket response headers (%llu ms, status=%lu)",
++           (unsigned long long)(GetTickCount64() - receive_started), status);
 +    if (status != 200) {
 +        rt_log("mkwom: account ticket HTTP status %lu (credentials or API configuration)", status);
 +        goto close;
@@ -9731,6 +9742,8 @@ index 0000000..18cc1ef
 +    ticket[q - p] = 0;
 +    ok = 1;
 +close:
++    rt_log("mkwom-diag: ticket end (%llu ms, success=%d)",
++           (unsigned long long)(GetTickCount64() - started), ok);
 +    SecureZeroMemory(headers, sizeof headers);
 +    if (req) WinHttpCloseHandle(req);
 +    if (con) WinHttpCloseHandle(con);
@@ -10761,7 +10774,7 @@ index b7fc741..b7d2cce 100644
  HOST_OVERRIDE("_ZN2nn3ldn8FinalizeEv", ov_nothing);
  HOST_OVERRIDE("_ZN2nn3ldn8GetStateEv", ov_ldn_state);
  HOST_OVERRIDE("_ZN2nn3ldn19GetDisconnectReasonEv", ov_ldn_state);
-@@ -114,12 +237,1214 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
+@@ -114,12 +237,1249 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
  HOST_OVERRIDE("_ZN2nn3ldn6RejectENS0_11Ipv4AddressE", ov_ldn_disabled);
  HOST_OVERRIDE("_ZN2nn3ldn22AttachStateChangeEventEPNS_2os15SystemEventTypeE", ov_nothing);
  
@@ -11151,7 +11164,20 @@ index b7fc741..b7d2cce 100644
 +    if (lan_refused(c, &h, "Connect")) return ret_x(c, (uint64_t)-1);
 +    redirect(&h);
 +    int r;
++#ifdef _WIN32
++    ULONGLONG connect_started = GetTickCount64();
++#endif
 +    AWAY(!f->nonblock, r = connect(f->s, (struct sockaddr *)&h, sizeof h));
++#ifdef _WIN32
++    ULONGLONG connect_ms = GetTickCount64() - connect_started;
++    if (connect_ms >= 100) {
++        static volatile uint32_t slow_connects;
++        uint32_t occurrence = __atomic_add_fetch(&slow_connects, 1, __ATOMIC_RELAXED);
++        if (occurrence <= 24 || !(occurrence & 127u))
++            rt_log("mkwom-diag: socket connect duration=%llu ms nonblocking=%d caller=%#llx",
++                   (unsigned long long)connect_ms, f->nonblock, (unsigned long long)c->x[30]);
++    }
++#endif
 +    if (!r) return ret_x(c, 0);
 +    int e = host_error();
 +    if (e == G_EISCONN) return ret_x(c, 0);
@@ -11626,6 +11652,9 @@ index b7fc741..b7d2cce 100644
 +    }
 +    if (ready) timeout = 0;   // an invalid descriptor is already an answer
 +    int r = 0;
++#ifdef _WIN32
++    ULONGLONG poll_started = GetTickCount64();
++#endif
 +    if (m) {
 +        AWAY(timeout != 0, r = host_poll(hp, m, timeout));
 +    } else if (timeout > 0) {
@@ -11633,6 +11662,16 @@ index b7fc741..b7d2cce 100644
 +        plat_sleep_ns((uint64_t)timeout * 1000000ull);
 +        kern_core_back(&away);
 +    }
++#ifdef _WIN32
++    ULONGLONG poll_ms = GetTickCount64() - poll_started;
++    if (poll_ms >= 100) {
++        static volatile uint32_t slow_polls;
++        uint32_t occurrence = __atomic_add_fetch(&slow_polls, 1, __ATOMIC_RELAXED);
++        if (occurrence <= 24 || !(occurrence & 127u))
++            rt_log("mkwom-diag: socket poll duration=%llu ms timeout=%d fds=%d result=%d caller=%#llx",
++                   (unsigned long long)poll_ms, timeout, m, r, (unsigned long long)c->x[30]);
++    }
++#endif
 +    if (r < 0) return ret_fail(c, host_error());
 +    for (int k = 0; k < m; k++) {
 +        short re = hp[k].revents;
@@ -11944,8 +11983,17 @@ index b7fc741..b7d2cce 100644
 +    uint64_t *size = arg_p(c, 0);
 +    char *buf = arg_p(c, 1);
 +    uint64_t cap = arg_x(c, 2);
-+    if (!online() || !buf || !net_identity_token(build_id(), buf, (size_t)cap))
-+        return ret_x(c, ACCOUNT_R_NSA_UNAVAILABLE);
++    if (!online() || !buf) return ret_x(c, ACCOUNT_R_NSA_UNAVAILABLE);
++#ifdef _WIN32
++    ULONGLONG token_started = GetTickCount64();
++#endif
++    int token_ok = net_identity_token(build_id(), buf, (size_t)cap);
++#ifdef _WIN32
++    // This SDK callback runs on a guest core. Blocking here stalls the game.
++    rt_log("mkwom-diag: nsa token callback duration=%llu ms success=%d",
++           (unsigned long long)(GetTickCount64() - token_started), token_ok);
++#endif
++    if (!token_ok) return ret_x(c, ACCOUNT_R_NSA_UNAVAILABLE);
 +    if (size) *size = strlen(buf);
 +    rt_log("account: ID token for %s (this player's friend code)", net_server()->text);
 +    ret_x(c, 0);

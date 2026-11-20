@@ -85,7 +85,7 @@ class Launcher:
             if self.accounts_enabled:
                 self.account_status.set(
                     "Saved account session found (not yet verified)." if saved_session else
-                    "Account pre-beta: registration is available; game login enforcement is pending.")
+                    "MKWOM accounts: register or log in to play online.")
         except ValueError:
             self.accounts_enabled = False
         self.make_ui()
@@ -143,7 +143,7 @@ class Launcher:
         line.columnconfigure(1, weight=1)
         self.save = ttk.Button(line, text="Save server", command=self.save_server)
         self.save.grid(row=1, column=2, padx=(8, 0), pady=(12, 0))
-        account_box = ttk.LabelFrame(outer, text="MKWOM Online Account (pre-beta)")
+        account_box = ttk.LabelFrame(outer, text="MKWOM Online Account")
         account_box.pack(fill="x", pady=(10, 0))
         account = tk.Frame(account_box, padx=12, pady=8)
         account.pack(fill="x")
@@ -290,7 +290,7 @@ class Launcher:
 
     @staticmethod
     def describe_login(profile: dict) -> str:
-        return "Signed in as " + str(profile["username"]) + ". Game authentication integration is pending."
+        return "Signed in as " + str(profile["username"]) + "."
 
     def logout_and_clear(self, folder: Path | None, channel: str) -> str:
         try:

@@ -78,7 +78,7 @@ in memory cannot be recovered from this new score ledger.
 The score ledger now requires a native-referee-issued `game_mode` of
 `race`, `knockout` or `battle`. Within each account, scores are separated by
 **channel and mode**; users can request `/scores?channel=beta&game_mode=race`
-(or Knockout/Release combinations). Native outbox events derive Knockout from the referee's numbered tour section, and require authoritative classification of Battle instead of folding it into Race. The delivery
+(or Knockout/Release combinations). Native outbox events derive Knockout from the referee section or rule 6, Battle from the authoritative session rule 5, and Race from rule 0. The delivery
 worker rejects missing and unexpected modes. Existing channel-only records
 remain in a `legacy` namespace after SQLite migration and are never silently
 claimed as Versus or Knockout.
@@ -112,11 +112,10 @@ blocks changes via `cfg_set`, and unfreezes/block-scripts the F3/F4
 freeze/step hack. Offline settings remain unchanged. This does **not** prove
 protection from modified executables, memory editors, or third-party mods.
 
-**Outstanding acceptance blocker:** the existing native referee recognizes
-Knockout sections, but the Battle request/finish protocol has not been
-identified or independently validated. The account/launcher/ledger is ready to
-store Battle results; the actual native game server cannot be claimed to
-correctly produce Battle-mode events yet. Battle scores must not be considered
+**Outstanding gameplay acceptance blocker:** the native score writer now derives Battle from the server-selected
+matchmaking rule 5, Knockout from rule 6 or a referee section, and Race from
+rule 0. The protocol and source-level mode mapping have automated checks.
+Actual end-to-end Battle scoring in gameplay has not yet been validated. Battle scores must not be considered
 operational until two-PC Battle race captures/tests prove the classification.
 The full dual-generation live handoff remains blocked on its separate protocol
 and deployment acceptance work.

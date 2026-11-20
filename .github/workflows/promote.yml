@@ -59,7 +59,7 @@ jobs:
     with:
       tag: ${{ needs.promote.outputs.candidate }}
       environment: pre-beta
-      restart_if_unchanged: true
+      restart_if_unchanged: false
     secrets: inherit
   publish-stable:
     if: inputs.destination == 'release'

@@ -42,6 +42,9 @@ class RollingGatewayService:
         self.config = config
         self.initial = config["initial"]
         self.generation_specs = config["generations"]
+        self.score_channel = config.get("score_channel")
+        if self.score_channel not in (None, "beta", "release"):
+            raise ValueError("invalid score channel")
         if not NAME.fullmatch(self.initial) or self.initial not in self.generation_specs:
             raise ValueError("invalid initial generation")
         self.settings = {}
@@ -59,8 +62,14 @@ class RollingGatewayService:
             unit = g.get("unit")
             if unit is not None and not UNIT.fullmatch(unit):
                 raise ValueError("invalid generation systemd unit")
+            score_unit = g.get("score_unit")
+            if score_unit is not None and not UNIT.fullmatch(score_unit):
+                raise ValueError("invalid score delivery unit")
+            if self.score_channel and not score_unit:
+                raise ValueError("a per-generation score delivery unit is mandatory for scoring channels")
             self.settings[name] = {"lobby": lobby, "friends": friends, "udp": udp,
-                                   "data": data, "ca": ca, "unit": unit}
+                                   "data": data, "ca": ca, "unit": unit,
+                                   "score_unit": score_unit}
         if len({p for g in self.settings.values() for p in [*g["udp"], g["lobby"], g["friends"]]}) != 7 * len(self.settings):
             raise ValueError("generation private backend ports overlap")
         public = config["public"]
@@ -107,6 +116,13 @@ class RollingGatewayService:
                     await asyncio.sleep(1)
         raise RuntimeError(f"generation {name} failed pinned TLS readiness") from last
 
+    async def _score_ready(self, name):
+        unit = self._generation(name)["score_unit"]
+        if unit:
+            await asyncio.to_thread(subprocess.run,
+                ["systemctl", "--user", "is-active", "--quiet", unit],
+                check=True, timeout=10)
+
     def _write_state(self, *, pending=None):
         self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.state_path.is_symlink():
@@ -149,6 +165,8 @@ class RollingGatewayService:
             await asyncio.to_thread(subprocess.run, ["systemctl", "--user", "start", unit],
                                     check=True, timeout=15)
         await self._health(target)
+        await self._score_ready(target)
+        await self._score_ready(old)
         marker = self._drain(old)
         try:
             self._write_state(pending=target)
@@ -168,6 +186,8 @@ class RollingGatewayService:
         if target == old:
             raise ValueError("already on requested generation")
         await self._health(target)
+        await self._score_ready(target)
+        await self._score_ready(old)
         marker = self._drain(old)
         try:
             self._write_state(pending=target)
@@ -235,6 +255,7 @@ class RollingGatewayService:
         if self.socket_path.exists() or self.socket_path.is_symlink():
             raise ValueError("control socket already exists; refusing to replace another service")
         await self._health(self.initial)
+        await self._score_ready(self.initial)
         await self.tcp.start(self.host, *self.tcp_ports)
         try:
             await self.udp.start(self.host, self.udp_ports)

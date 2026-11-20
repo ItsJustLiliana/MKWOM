@@ -10,8 +10,8 @@ on:
         options: [beta, release]
         required: true
       release_version:
-        description: Version for published Release (e.g. v0.1.0)
-        default: v0.1.0
+        description: Optional version (blank automatically increments latest stable patch)
+        required: false
 permissions:
   contents: write
 concurrency:
@@ -49,10 +49,39 @@ jobs:
     with:
       tag: ${{ needs.promote.outputs.tag }}
       channel: beta
-  activate-release:
+  deploy-release:
     if: inputs.destination == 'release'
     needs: promote
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+    with:
+      tag: ${{ needs.promote.outputs.tag }}
+      environment: pre-beta
+      restart_if_unchanged: true
+    secrets: inherit
+  activate-release:
+    if: inputs.destination == 'release'
+    needs: [promote, deploy-release]
     uses: ./.github/workflows/channel.yml
     with:
       tag: ${{ needs.promote.outputs.tag }}
       channel: release
+  publish-release:
+    if: inputs.destination == 'release'
+    needs: [promote, activate-release]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Publish approved non-prerelease as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.promote.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false

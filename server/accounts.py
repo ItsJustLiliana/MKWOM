@@ -205,22 +205,26 @@ def logout(token_hash: str = Depends(bearer)):
     return {"ok": True}
 
 
-def score_writer(x_mkwom_score_key: str | None = Header(default=None)):
-    """Shared secret used only by the native server/loopback relay, never a player."""
-    configured = os.environ.get("MKWOM_SCORE_INGEST_KEY", "")
+def score_writer_for(channel: str, submitted: str | None):
+    """Each channel uses an independent writer key, never a shared Beta/Release key."""
+    if channel not in ("beta", "release"):
+        raise HTTPException(422, "Invalid score channel")
+    envname = "MKWOM_SCORE_" + channel.upper() + "_KEY"
+    configured = os.environ.get(envname, "")
     if not re.fullmatch(r"[a-f0-9]{64}", configured):
-        raise HTTPException(503, "Score ingestion is not configured")
-    if not x_mkwom_score_key or not hmac.compare_digest(x_mkwom_score_key, configured):
+        raise HTTPException(503, "Score ingestion is not configured for this channel")
+    if not submitted or not hmac.compare_digest(submitted, configured):
         raise HTTPException(403, "Score writer authentication failed")
 
 
-@app.post("/internal/race-result", dependencies=[Depends(score_writer)])
-def record_race(body: RaceResult):
+@app.post("/internal/race-result")
+def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default=None)):
     """Atomic, retry-safe write, keyed by channel/race ID.
 
     Changing a race's contents on retry is rejected. Scores for distinct channels
     never share rows. Do not call until referee outcome is final and verified.
     """
+    score_writer_for(body.channel, x_mkwom_score_key)
     if len({player.account_id for player in body.players}) != len(body.players):
         raise HTTPException(422, "Duplicate player in race")
     if len({player.position for player in body.players}) != len(body.players):

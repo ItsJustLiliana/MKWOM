@@ -127,3 +127,51 @@ def test_game_modes_are_isolated_within_each_channel(client):
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 409
     assert client.post("/internal/race-result", json={k: v for k, v in event.items() if k != "game_mode"},
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 422
+
+
+def test_ratings_are_computed_from_private_mode_ledger_not_submitted_points(client):
+    token_a, a = register(client, "IsolatedAlpha")
+    token_b, b = register(client, "IsolatedBeta")
+    headers = {"Authorization": "Bearer " + token_a}
+    def submit(channel, mode, race, winner, loser):
+        supplied = {"channel": channel, "game_mode": mode, "race_id": race,
+                    "players": [
+                        {"account_id": winner, "position": 1, "points": 100000},
+                        {"account_id": loser, "position": 2, "points": 100000}]}
+        key = "ac" * 32 if channel == "beta" else "bd" * 32
+        result = client.post("/internal/race-result", json=supplied,
+                             headers={"X-MKWOM-Score-Key": key})
+        assert result.status_code == 200, result.text
+    def rating(channel, mode):
+        result = client.get("/scores", params={"channel": channel, "game_mode": mode}, headers=headers)
+        assert result.status_code == 200, result.text
+        return result.json()["rating"]
+    submit("beta", "race", "secure-elo-race-0001", a, b)
+    assert rating("beta", "race") == 3012
+    assert rating("beta", "knockout") == 3000
+    assert rating("beta", "battle") == 3000
+    assert rating("release", "race") == 3000
+    submit("beta", "knockout", "secure-elo-ko-00002", b, a)
+    submit("beta", "battle", "secure-elo-btl-0003", a, b)
+    submit("release", "race", "secure-elo-rel-0004", b, a)
+    assert rating("beta", "race") == 3012
+    assert rating("beta", "knockout") == 2988
+    assert rating("beta", "battle") == 3012
+    assert rating("release", "race") == 2988
+    # The second Race uses A's rating 3012 and B's 2988, not a client-reported
+    # score or the winner's score from another game mode.
+    submit("beta", "race", "secure-elo-race-0005", b, a)
+    assert rating("beta", "race") == 2999
+    assert rating("beta", "knockout") == 2988
+    assert client.get("/scores", params={"channel": "beta", "game_mode": "race"},
+                      headers={"Authorization": "Bearer " + token_b}).json()["rating"] == 3001
+
+
+def test_scored_solo_race_is_zero_and_retry_does_not_inflate(client):
+    token, uid = register(client, "SoloNoFarm")
+    player = [{"account_id": uid, "position": 1, "points": 100000}]
+    assert publish(client, "beta", "solo-no-farm-000001", player).status_code == 200
+    assert publish(client, "beta", "solo-no-farm-000001", player).json()["duplicate"] is True
+    assert scores(client, token, "beta").json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=race",
+                      headers={"Authorization": "Bearer " + token}).json()["rating"] == 3000

@@ -14,6 +14,8 @@ from .autostart import install_helper
 from .cli import COMMUNITY_ENDPOINT, fetch_channel, update
 from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
+from .installer import read_json, uninstall
+from .session_storage import remove_game_session
 from .session_storage import protect_for_game
 
 BLUE = "#3069dc"
@@ -22,7 +24,7 @@ NAV = "#151922"
 PANEL = "#1b202b"
 TEXT = "#edf1f7"
 MUTED = "#9ca8b9"
-STEPS = ("Game folder", "Update channel", "MKWOM account", "Review", "Install")
+STEPS = ("Game folder", "Existing installation", "Update channel", "MKWOM account", "Review", "Install")
 COMPLETE = "Installation complete"
 
 
@@ -58,6 +60,34 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     return COMPLETE
 
 
+
+def installed_patch(game: Path) -> dict | None:
+    """MKWOM is installed only if its committed patch manifest is present."""
+    state = read_json(game / ".mkwom" / "installed.json", {})
+    if not isinstance(state, dict) or not state.get("version"):
+        return None
+    files = state.get("files")
+    if not isinstance(files, list) or not any(
+        isinstance(item, dict) and item.get("path") == "mkw.exe" for item in files
+    ):
+        return None
+    return state
+
+
+def uninstall_mkwom(game: Path, report=None) -> str:
+    if not installed_patch(game):
+        raise ValueError("No MKWOM patch is installed in this folder")
+    if report:
+        report(15, "Restoring original game files")
+    uninstall(game)
+    if report:
+        report(85, "Removing the saved in-game session bridge")
+    remove_game_session(game)
+    if report:
+        report(100, "Original files restored, saves preserved")
+    return "Uninstall complete"
+
+
 class SetupWizard:
     def __init__(self):
         self.root = tk.Tk()
@@ -71,6 +101,9 @@ class SetupWizard:
         self.step = 0
         self.busy = False
         self.complete = False
+        self.action = tk.StringVar(value="reinstall")
+        self.installation = None
+        self.completed_action = "install"
         self.game = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="release")
         self.username = tk.StringVar()
@@ -171,16 +204,17 @@ class SetupWizard:
             self.back.configure(state="disabled")
             self.next.configure(text="Done", command=self.close)
             return
-        titles = ("Choose your game folder", "Choose update channel", "Sign in to MKWOM",
-                  "Ready to install", "Installing multiplayer")
-        subtitles = ("Select the existing official recomp folder containing mkw.exe.",
+        titles = ("Choose your game folder", "MKWOM already installed", "Choose update channel",
+                  "Sign in to MKWOM", "Ready to install", "Installing multiplayer")
+        subtitles = ("Select the official recomp folder containing mkw.exe.",
+                     "Choose Reinstall to change channel or Uninstall to restore game files.",
                      "Only approved Beta and Release builds are available.",
-                     "Sign in once; the credentials are stored securely on this Windows account.",
-                     "Check these settings before any game files are changed.",
-                     "Do not close the game patcher while files are being updated.")
+                     "Existing accounts are reused after server verification.",
+                     "Review settings before any game files change.",
+                     "Do not close the patcher during installation or removal.")
         self.heading.configure(text=titles[self.step])
         self.subtitle.configure(text=subtitles[self.step])
-        self.next.configure(text="Install" if self.step == 3 else "Continue  →",
+        self.next.configure(text="Uninstall" if self.step == 1 and self.action.get() == "uninstall" else "Install" if self.step == 4 else "Continue  →",
                             command=self.advance)
         if self.step == 0:
             self._field("Game installation directory", self.game)
@@ -189,6 +223,15 @@ class SetupWizard:
             self._label(self.body, "Your game files and saves remain in their original folder.",
                         10, MUTED).pack(anchor="w", pady=18)
         elif self.step == 1:
+            self._label(self.body, "MKWOM is already installed.", 12, bold=True).pack(anchor="w", pady=(0, 14))
+            self._label(self.body, "Version: " + str(self.installation.get("version", "unknown")), 10, MUTED).pack(anchor="w")
+            for name, detail in (("reinstall", "Reinstall or switch update channel"),
+                                 ("uninstall", "Restore original game files; keep saves")):
+                tk.Radiobutton(self.body, text=f"{name.title()} — {detail}", variable=self.action,
+                               value=name, command=self.show_step, bg=PANEL, fg=TEXT,
+                               selectcolor="#303c52", activebackground=PANEL, activeforeground=TEXT,
+                               font=("Segoe UI", 11), anchor="w").pack(fill="x", pady=12)
+        elif self.step == 2:
             self._label(self.body, "Update channel", 11, bold=True).pack(anchor="w")
             for name, detail in (("release", "Stable, approved updates"), ("beta", "Test the latest approved Beta")):
                 tk.Radiobutton(self.body, text=f"{name.title()}   —   {detail}", variable=self.channel,
@@ -196,14 +239,14 @@ class SetupWizard:
                                activebackground=PANEL, activeforeground=TEXT,
                                font=("Segoe UI", 11), anchor="w").pack(fill="x", pady=10)
             self._label(self.body, f"Official server: {COMMUNITY_ENDPOINT}", 10, MUTED).pack(anchor="w", pady=15)
-        elif self.step == 2:
+        elif self.step == 3:
             self._field("Username", self.username)
             self._field("Password", self.password, secret=True)
             tk.Button(self.body, text="Create a new account", command=lambda: self.sign_in(True),
                       bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w")
             self._label(self.body, "Already logged in? Continue verifies your existing session.",
                         10, MUTED, wraplength=550, justify="left").pack(anchor="w", pady=16)
-        elif self.step == 3:
+        elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
                                  ("Server", COMMUNITY_ENDPOINT), ("Account", self.username.get() or "Saved account")):
                 self._label(self.body, label.upper(), 9, MUTED, bold=True).pack(anchor="w", pady=(10, 0))
@@ -229,6 +272,8 @@ class SetupWizard:
     def previous(self):
         if self.step > 0 and not self.busy:
             self.step -= 1
+            if self.step == 1 and self.installation is None:
+                self.step = 0
             self.show_step()
 
     def start(self, task, complete):
@@ -256,7 +301,7 @@ class SetupWizard:
 
     def _signed_in(self, profile):
         self.username.set(str(profile.get("username", self.username.get())))
-        self.step = 3
+        self.step = 4
         self.notice.set("Account verified. Review the settings, then click Install.")
         self.show_step()
 
@@ -315,8 +360,8 @@ class SetupWizard:
                     callback(future.result())
                 except Exception as error:
                     self.notice.set("Error: " + str(error))
-                    if self.step == 4:
-                        self.step = 3  # Explicit retry; no automatic reinstall.
+                    if self.step == 5:
+                        self.step = 1 if self.completed_action == "uninstall" else 4
                     self.show_step()
                     messagebox.showerror("MKWOM Setup", str(error))
                 else:

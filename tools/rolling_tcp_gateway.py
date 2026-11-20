@@ -45,6 +45,7 @@ class RollingTCPGateway:
         self._listeners: list[asyncio.AbstractServer] = []
         self._lock = asyncio.Lock()
         self._watchdog: asyncio.Task | None = None
+        self._cutover_gate: asyncio.Event | None = None
 
     async def start(self, host: str, lobby_port: int, friends_port: int) -> None:
         """Bind both frontend TCP listeners, or none."""
@@ -64,7 +65,9 @@ class RollingTCPGateway:
 
     async def _accept(self, client_reader: asyncio.StreamReader,
                       client_writer: asyncio.StreamWriter, kind: str) -> None:
-        # Snapshot routing decision BEFORE yielding to an upstream connection.
+        # Hold NEW streams until both transports agree on generation.
+        if self._cutover_gate is not None:
+            await self._cutover_gate.wait()
         generation = self.current
         task = asyncio.current_task()
         assert task is not None

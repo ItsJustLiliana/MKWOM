@@ -148,3 +148,10 @@ def test_local_control_socket_reports_current_routing(tmp_path, monkeypatch):
             await asyncio.wait_for(running, timeout=4)
             assert not Path(conf["control_socket"]).exists()
     asyncio.run(scenario())
+
+
+def test_crash_in_pending_cutover_never_silently_routes_to_old(tmp_path):
+    conf = config(tmp_path)
+    Path(conf["state_file"]).write_text('{"current":"old","pending":"new"}')
+    with pytest.raises(ValueError, match="fail closed"):
+        RollingGatewayService(conf)

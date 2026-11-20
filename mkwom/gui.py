@@ -308,8 +308,19 @@ class Launcher:
     @staticmethod
     def score_summary(channel: str) -> str:
         scores = channel_scores(channel)
-        return (f"{channel.title()} scores: {scores['total_points']:+d} Elo change "
-                f"across {scores['races']} completed race(s).")
+        by_mode = {}
+        for entry in scores.get("history", []):
+            mode = entry.get("game_mode", "legacy")
+            by_mode.setdefault(mode, [0, 0])
+            by_mode[mode][0] += entry["points"]
+            by_mode[mode][1] += 1
+        # Fetch all-time totals per mode: history contains at most 50 races.
+        versus = channel_scores(channel, "versus")
+        knockout = channel_scores(channel, "knockout")
+        return (f"{channel.title()} scores | Versus: {versus['total_points']:+d} Elo "
+                f"({versus['races']} races) | Knockout: {knockout['total_points']:+d} Elo "
+                f"({knockout['races']} races). "
+                f"Overall (including legacy): {scores['total_points']:+d} Elo.")
 
     def view_scores(self):
         if self.accounts_enabled and not self.busy and self.channel.get() in ("beta", "release"):

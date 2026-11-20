@@ -18489,8 +18489,9 @@ index 0000000..fb8f922
 +    char path[1600], directory[1400], document[8192];
 +    if (!*race->uuid || strspn(race->uuid, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 +                          != strlen(race->uuid)) return 0;
-+    // The native referee classifies Knockout sections; ordinary races use Versus.
-+    const char *game_mode = race->section >= 0 ? "knockout" : "versus";
++    // The native referee classifies Knockout sections; ordinary race requests use Race.
++    // Battle needs separate verified native protocol classification before scores can be emitted.
++    const char *game_mode = race->section >= 0 ? "knockout" : "race";
 +    int n = snprintf(document, sizeof document, "{\"channel\":\"%s\",\"race_id\":\"%s\",\"game_mode\":\"%s\",\"players\":[",
 +                     channel, race->uuid, game_mode);
 +    if (n < 0 || (size_t)n >= sizeof document) return 0;

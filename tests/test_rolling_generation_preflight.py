@@ -1,5 +1,6 @@
 """Port and data-isolation preflight for a prospective blue/green deploy."""
 from dataclasses import replace
+import os
 
 import pytest
 
@@ -42,6 +43,8 @@ def test_rejects_outside_project_and_symlink(tmp_path):
     old, new = config(tmp_path)
     with pytest.raises(ValueError):
         validate_generations(tmp_path, old, replace(new, data_dir=tmp_path.parent / "outside" / "server"))
+    if os.name == "nt":
+        return  # Creating directory symlinks requires privileges on some Windows runners.
     (tmp_path / "generations").mkdir()
     (tmp_path / "generations" / "linked").symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(ValueError):

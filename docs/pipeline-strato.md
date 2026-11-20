@@ -20,7 +20,7 @@ Pull requests only run builds/tests; they do not queue or deploy.
 GitHub **Actions → Promote queued build to Beta or approved Beta to Release → Run workflow**:
 
 - Destination: `beta`
-- Candidate: the queued `pre-beta-<run>-<sha12>` tag
+- Candidate: leave empty for the newest successfully queued build, or supply a specific `pre-beta-<run>-<sha12>` tag
 
 Actions verifies the queue receipt, copies the *same build artifacts* into an immutable Beta prerelease, deploys the approved server binary to the **single live STRATO lobby**, checks TLS/health, and only then updates `channel-beta`. If deployment fails, the channel pointer is unchanged. The live service briefly restarts for a changed binary; schedule approvals accordingly.
 
@@ -29,7 +29,7 @@ Actions verifies the queue receipt, copies the *same build artifacts* into an im
 Run the *same* workflow with:
 
 - Destination: `release`
-- Candidate: the **currently active** `beta-<run>-<sha12>` tag
+- Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `beta-<run>-<sha12>` tag
 - Release version: `vX.Y.Z`
 
 It verifies the active Beta pointer, copies the exact already-tested artifacts to the **published** stable GitHub Release, then activates `channel-release`. It does **not** deploy to a second host or restart the same binary again. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.

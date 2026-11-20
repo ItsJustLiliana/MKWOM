@@ -17,15 +17,18 @@ def main():
     p.add_argument("channel", choices=["beta", "release"])
     p.add_argument("tag")
     p.add_argument("--endpoint")
+    p.add_argument("--patch-asset", default="mkwom-patch-windows-x64.zip")
     a = p.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", a.tag):
         p.error("invalid release tag")
     if a.endpoint:
         endpoint(a.endpoint)
+    if not re.fullmatch(r"[A-Za-z0-9._+-]+", a.patch_asset):
+        p.error("invalid patch asset name")
     info = json.loads(Path("dist/build-info.json").read_text())
     patch = Path("dist/mkwom-patch-windows-x64.zip")
     result = {"format": 1, "channel": a.channel, "tag": a.tag, "version": info["version"], "installer_version": __version__,
-              "patch_url": f"https://github.com/ItsJustLiliana/MKWOM/releases/download/{a.tag}/{patch.name}",
+              "patch_url": f"https://github.com/ItsJustLiliana/MKWOM/releases/download/{a.tag}/{a.patch_asset}",
               "sha256": hashlib.sha256(patch.read_bytes()).hexdigest(), "endpoint": a.endpoint or None}
     Path("dist/channel.json").write_text(json.dumps(result, indent=2))
 

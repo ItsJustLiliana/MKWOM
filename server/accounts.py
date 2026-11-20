@@ -5,6 +5,7 @@ must be integrated before accounts can authorise online gameplay.
 """
 import hashlib
 import hmac
+import math
 import os
 from pathlib import Path
 import re
@@ -234,6 +235,28 @@ def score_writer_for(channel: str, submitted: str | None):
         raise HTTPException(403, "Score writer authentication failed")
 
 
+def verified_elo_deltas(positions: list[tuple[str, int]], ratings: dict[str, int]) -> dict[str, int]:
+    """Calculate per-channel and per-gamemode Elo from native finishing order.
+
+    Never use the native event's client-influenced points delta or PlayerStatic
+    rating as the account ledger's authoritative starting rating.
+    """
+    n = len(positions)
+    result = {}
+    div = max(1, n - 1)
+    for uid, rank in positions:
+        delta = 0.0
+        for opponent, other_rank in positions:
+            if opponent == uid:
+                continue
+            expectation = 1.0 / (1.0 + 10.0 ** ((ratings[opponent] - ratings[uid]) / 400.0))
+            outcome = 1.0 if rank < other_rank else 0.5 if rank == other_rank else 0.0
+            delta += 24.0 * (outcome - expectation) / div
+        # C lround equivalent (ties away from zero), rather than Python bankers rounding.
+        result[uid] = math.floor(delta + 0.5) if delta >= 0 else math.ceil(delta - 0.5)
+    return result
+
+
 @app.post("/internal/race-result")
 def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default=None)):
     """Atomic, retry-safe write, keyed by channel/race ID.
@@ -264,11 +287,22 @@ def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default
             [p[0] for p in canonical])}
         if len(accounts) != len(canonical):
             raise HTTPException(422, "Unknown account in race result")
+        # Read all existing ratings inside the same write transaction. Two
+        # concurrent generations cannot inflate or race the same account rating.
+        ratings = {}
+        for uid, _, _ in canonical:
+            previous = db.execute(
+                "SELECT COALESCE(SUM(points),0) FROM race_scores "
+                "WHERE channel=? AND game_mode=? AND user_id=?",
+                (body.channel, body.game_mode, uid)).fetchone()
+            ratings[uid] = 3000 + previous[0]
+        calculated = verified_elo_deltas([(uid, pos) for uid, pos, _ in canonical], ratings)
         db.execute("INSERT INTO race_results(channel,race_id,game_mode,payload_hash,created_at) VALUES (?,?,?,?,?)",
                    (body.channel, body.race_id, body.game_mode, digest, int(time.time())))
         db.executemany(
             "INSERT INTO race_scores(channel,race_id,game_mode,user_id,position,points) VALUES (?,?,?,?,?,?)",
-            [(body.channel, body.race_id, body.game_mode, uid, pos, pts) for uid, pos, pts in canonical])
+            [(body.channel, body.race_id, body.game_mode, uid, pos, calculated[uid])
+             for uid, pos, _ in canonical])
     return {"accepted": True, "duplicate": False}
 
 

@@ -1,7 +1,7 @@
 """Regression guard: first Online opening never does profile I/O on render thread."""
 from pathlib import Path
 
-PATCH = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text()
+PATCH = (Path(__file__).resolve().parents[1] / "patches/multiplayer.patch").read_text(encoding="utf-8")
 START = PATCH.index("diff --git a/runtime/ui/launcher/launcher_online.cpp")
 END = PATCH.index("diff --git ", START + 10)
 CODE = PATCH[START:END]

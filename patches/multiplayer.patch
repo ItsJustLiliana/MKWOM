@@ -10774,7 +10774,7 @@ index b7fc741..b7d2cce 100644
  HOST_OVERRIDE("_ZN2nn3ldn8FinalizeEv", ov_nothing);
  HOST_OVERRIDE("_ZN2nn3ldn8GetStateEv", ov_ldn_state);
  HOST_OVERRIDE("_ZN2nn3ldn19GetDisconnectReasonEv", ov_ldn_state);
-@@ -114,12 +237,1275 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
+@@ -114,12 +237,1286 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
  HOST_OVERRIDE("_ZN2nn3ldn6RejectENS0_11Ipv4AddressE", ov_ldn_disabled);
  HOST_OVERRIDE("_ZN2nn3ldn22AttachStateChangeEventEPNS_2os15SystemEventTypeE", ov_nothing);
  
@@ -11682,7 +11682,18 @@ index b7fc741..b7d2cce 100644
 +    ULONGLONG poll_started = GetTickCount64();
 +#endif
 +    if (m) {
-+        AWAY(timeout != 0, r = host_poll(hp, m, timeout));
++        if (timeout < 0) {
++            // An unbounded WSAPoll can sleep for seconds after a readiness
++            // notification, starving guest core scheduling in Online Play.
++            // Re-enter the guest scheduler between short host waits while
++            // preserving the guest's infinite-wait contract: never report
++            // an empty result as a timeout for negative timeouts.
++            do {
++                AWAY(1, r = host_poll(hp, m, 50));
++            } while (r == 0);
++        } else {
++            AWAY(timeout != 0, r = host_poll(hp, m, timeout));
++        }
 +    } else if (timeout > 0) {
 +        int away = kern_core_away();
 +        plat_sleep_ns((uint64_t)timeout * 1000000ull);

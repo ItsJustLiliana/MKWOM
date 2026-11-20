@@ -1,4 +1,4 @@
-name: Activate pre-beta on Arch (manual)
+name: Activate pre-beta on STRATO (manual)
 on:
   workflow_dispatch:
     inputs:

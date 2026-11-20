@@ -1,3 +1,5 @@
+> **Current deployment target (November 2026): STRATO VPS, not Arch.** The historical Tailscale/Arch instructions below are superseded by [STRATO migration](strato-migration.md). Deployments use pinned-host-key SSH, the account API is at https://mkwom-api.liliananuzohra.com and native lobby is 31.70.192.231:18443. Do not set Arch deployment secrets or enable a stage before the STRATO SSH preflight passes.
+
 # Operator setup and promotion
 
 **Current operator policy:** build-only on push; all three server updates require an explicit GitHub Actions click. See [current Arch setup and three-stage workflow](three-stage-arch.md). The older automatic-push wording below is superseded by this policy.

@@ -1,6 +1,4 @@
 """Direct-launch settings must preserve game configuration and never store auth secrets."""
-import pytest
-
 from mkwom.direct_launch import persist_online_settings
 from mkwom.cli import COMMUNITY_ENDPOINT
 from mkwom.installer import json_write
@@ -29,7 +27,6 @@ def test_direct_launch_persists_online_without_overwriting_preferences(tmp_path)
 
 def test_direct_launch_replaces_legacy_server(tmp_path):
     (tmp_path / "mkw.ini").write_text("[video]\nFPS=60\n")
-    original = (tmp_path / "mkw.ini").read_bytes()
     json_write(tmp_path / ".mkwom/settings.json", {"endpoint": "http://evil.example"})
     persist_online_settings(tmp_path)
     assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT).encode() in (tmp_path / "mkw.ini").read_bytes()

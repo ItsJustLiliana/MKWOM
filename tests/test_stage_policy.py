@@ -71,7 +71,7 @@ def test_only_main_or_prebeta_builds_new_candidates():
 def test_release_deploys_approved_beta_instead_of_unpublished_draft():
     workflow = contents(".github/workflows/promote.yml")
     assert "tag: ${{ needs.promote.outputs.candidate }}" in workflow
-    assert "restart_if_unchanged: true" in workflow
+    assert "restart_if_unchanged: false" in workflow
     assert "publish-stable:" in workflow
     assert "needs: [promote, deploy-release]" in workflow
     assert "needs: [promote, publish-stable]" in workflow
@@ -85,3 +85,12 @@ def test_failed_release_promotion_can_resume_existing_draft_without_duplicate_ta
     assert '"isDraft,isPrerelease,targetCommitish,body,assets"' in script
     assert "Reusing existing draft or published Release" in script
     assert "refusing overwrite" in script
+
+
+def test_beta_and_release_do_not_restart_unchanged_server():
+    workflow = contents(".github/workflows/promote.yml")
+    assert "restart_if_unchanged: true" not in workflow
+    assert "restart_if_unchanged: false" in workflow
+    deploy = contents("tools/deploy_server.py")
+    assert 'if hashlib.sha256(exe.read_bytes()).hexdigest() == metadata["sha256"]:' in deploy
+    assert 'print("Server binary unchanged; no restart required.")' in deploy

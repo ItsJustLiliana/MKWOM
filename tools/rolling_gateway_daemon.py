@@ -96,6 +96,8 @@ class RollingGatewayService:
         self.control_server = None
         self.stop_event = asyncio.Event()
         self.stopped_units = set()
+        self.rollback_target = None
+        self._health_failures = 0
 
     def _generation(self, name):
         if name not in self.settings:
@@ -180,6 +182,8 @@ class RollingGatewayService:
                 await self.controller.rollback(old)
             marker.unlink(missing_ok=True)
             raise
+        self.rollback_target = old
+        self._health_failures = 0
         return {"active": target, "draining": old, "cutoff_seconds": 3600}
 
     async def rollback(self, target):
@@ -200,6 +204,8 @@ class RollingGatewayService:
                 await self.controller.rollback(old)
             marker.unlink(missing_ok=True)
             raise
+        self.rollback_target = None
+        self._health_failures = 0
         return {"active": target, "draining": old, "cutoff_seconds": 3600}
 
     def status(self):
@@ -234,8 +240,40 @@ class RollingGatewayService:
         writer.close()
         await writer.wait_closed()
 
+    async def _check_live_health(self):
+        """Return new routing to the last healthy generation after repeated failures."""
+        previous = self.rollback_target
+        if not previous:
+            return
+        current = self.tcp.current.name
+        try:
+            # Single readiness probe; the startup path separately retries TLS.
+            from tools.deploy_server import health
+            g = self._generation(current)
+            await asyncio.to_thread(health, g["lobby"][0], g["lobby"][1], g["ca"])
+            self._health_failures = 0
+        except (OSError, ValueError, RuntimeError, ssl.SSLError) as exc:
+            self._health_failures += 1
+            print(f"Active generation {current} health failure {self._health_failures}: {exc}", flush=True)
+            if self._health_failures < 3:
+                return
+            if previous not in self.tcp.generations or previous not in self.udp.generations:
+                print("Previous generation expired; automatic rollback is no longer possible", flush=True)
+                self.rollback_target = None
+                return
+            try:
+                await self.rollback(previous)
+                print(f"Automatic routing rollback to {previous} complete", flush=True)
+            except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                print(f"Automatic rollback FAILED: {error}", flush=True)
+                self.rollback_target = None  # fail closed instead of looping forever
+
     async def _retirement(self):
+        last_health = time.monotonic()
         while not self.stop_event.is_set():
+            if time.monotonic() - last_health >= 5:
+                last_health = time.monotonic()
+                await self._check_live_health()
             # Both gateways must have retired a generation before its native
             # service may stop. The per-generation score worker keeps retrying.
             for name, g in self.settings.items():

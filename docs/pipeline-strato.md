@@ -67,7 +67,7 @@ For the **beta** and **release** GitHub environments set `COMMUNITY_ENDPOINT=31.
 
 ## Windows setup experience
 
-The downloadable `mkwom.exe` opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Done** closes the setup, without launching the game. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
+The user-facing download `MKWOM-vX.Y.Z-beta.N.exe` (Beta) or `MKWOM-vX.Y.Z.exe` (stable) opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Done** closes the setup, without launching the game. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
 
 A stable EXE Release is created as a draft during promotion and becomes a **published non-prerelease Latest** only after the approved restart, health check and channel activation. Beta candidates and queued pre-beta builds remain internal GitHub prereleases, not the Latest stable download.
 

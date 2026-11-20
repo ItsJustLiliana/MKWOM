@@ -15,7 +15,7 @@ if channel == "beta" and os.environ.get("AUTO_DEPLOY") != "true":
 
 source_tag = os.environ.get("SOURCE_TAG", "").strip() if channel == "release" else tag
 if channel == "release" and not (re.fullmatch(r"beta-[0-9]+-[a-f0-9]{12}", source_tag) or
-        re.fullmatch(r"v[0-9]+\\.[0-9]+\\.[0-9]+-beta\\.[1-9][0-9]*", source_tag)):
+        re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*", source_tag)):
     raise ValueError("Release activation requires the exact approved Beta source tag")
 Path("dist").mkdir(exist_ok=True)
 subprocess.run(["gh", "release", "download", source_tag, "--dir", "dist", "--pattern", "build-info.json",

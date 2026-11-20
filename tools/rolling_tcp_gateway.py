@@ -154,9 +154,13 @@ class RollingTCPGateway:
         for name, generation in list(self.generations.items()):
             if generation is self.current or generation.deadline is None:
                 continue
-            if self.clock() >= generation.deadline:
-                for stream in tuple(generation.streams):
-                    stream.cancel()
+            # A lack of TCP streams does not mean the native lobby is empty:
+            # active racers can be on UDP, and an existing client may reconnect.
+            # Keep the generation routable for the entire deadline window.
+            if self.clock() < generation.deadline:
+                continue
+            for stream in tuple(generation.streams):
+                stream.cancel()
             if not generation.streams:
                 retired.append(name)
                 del self.generations[name]

@@ -17,7 +17,7 @@ def test_direct_launch_persists_online_without_overwriting_preferences(tmp_path)
     assert b"FPS=60\r\n" in first
     assert b"; a player comment\r\n" in first
     assert b"ONLINE=1\r\n" in first
-    assert b"ONLINE_SERVER=community.example:18443\r\n" in first
+    assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT + "\r\n").encode() in first
     assert b"SERVER_HOST=0\r\n" in first
     assert b"UPDATE_CHECK=0\r\n" in first
     assert b"access_token" not in first and b"password" not in first

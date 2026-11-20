@@ -25,7 +25,7 @@ def register(client, username):
 def publish(client, channel, race_id, players, *, key=None):
     return client.post("/internal/race-result",
                        headers={"X-MKWOM-Score-Key": key if key is not None else ("bd" * 32 if channel == "release" else "ac" * 32)},
-                       json={"channel": channel, "race_id": race_id, "game_mode": "versus", "players": players})
+                       json={"channel": channel, "race_id": race_id, "game_mode": "race", "players": players})
 
 
 def scores(client, token, channel):
@@ -65,7 +65,7 @@ def test_ingestion_requires_server_secret_and_approved_channel(client):
     players = [{"account_id": uid, "position": 1, "points": 15}]
     assert publish(client, "beta", "result-123456789", players, key="invalid").status_code == 403
     assert client.post("/internal/race-result", json={"channel": "beta",
-                       "race_id": "result-123456789", "game_mode": "versus", "players": players}).status_code == 403
+                       "race_id": "result-123456789", "game_mode": "race", "players": players}).status_code == 403
     assert publish(client, "pre-beta", "result-123456789", players).status_code == 422
     assert scores(client, token, "beta").json()["races"] == 0
     assert scores(client, token, "pre-beta").status_code == 422
@@ -112,11 +112,14 @@ def test_game_modes_are_isolated_within_each_channel(client):
     assert client.post("/internal/race-result", json=event,
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
     h = {"Authorization": "Bearer " + token}
-    assert client.get("/scores?channel=beta&game_mode=versus", headers=h).json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["races"] == 1
     assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["races"] == 1
     assert client.get("/scores?channel=release&game_mode=knockout", headers=h).json()["races"] == 0
+    battle = {**event, "race_id": "mode-isolated-0003", "game_mode": "battle"}
+    assert client.post("/internal/race-result", json=battle, headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
+    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["races"] == 1
     assert client.get("/scores?channel=beta&game_mode=unknown", headers=h).status_code == 422
-    assert client.post("/internal/race-result", json={**event, "game_mode": "versus"},
+    assert client.post("/internal/race-result", json={**event, "game_mode": "race"},
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 409
     assert client.post("/internal/race-result", json={k: v for k, v in event.items() if k != "game_mode"},
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 422

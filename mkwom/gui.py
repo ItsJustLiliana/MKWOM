@@ -309,11 +309,13 @@ class Launcher:
     def score_summary(channel: str) -> str:
         scores = channel_scores(channel)
         # Fetch all-time totals per mode: history contains at most 50 races.
-        versus = channel_scores(channel, "versus")
+        race = channel_scores(channel, "race")
         knockout = channel_scores(channel, "knockout")
-        return (f"{channel.title()} scores | Versus: {versus['total_points']:+d} Elo "
-                f"({versus['races']} races) | Knockout: {knockout['total_points']:+d} Elo "
-                f"({knockout['races']} races). "
+        battle = channel_scores(channel, "battle")
+        return (f"{channel.title()} scores | Race: {race['total_points']:+d} Elo "
+                f"({race['races']} races) | Knockout: {knockout['total_points']:+d} Elo "
+                f"({knockout['races']} races) | Battle: {battle['total_points']:+d} Elo "
+                f"({battle['races']} races). "
                 f"Overall (including legacy): {scores['total_points']:+d} Elo.")
 
     def view_scores(self):

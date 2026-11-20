@@ -20201,7 +20201,7 @@ new file mode 100644
 index 0000000..3e4df5e
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.cpp
-@@ -0,0 +1,472 @@
+@@ -0,0 +1,480 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page, in the order a player needs it: who they are (name, friend code), how they play
 +// (off, hosting the server built into the game, or joining a friend's), then their friends, then LAN play through
@@ -20308,7 +20308,16 @@ index 0000000..3e4df5e
 +            }
 +        }
 +    }
++    // Profile lookup may do filesystem writes and adapter enumeration.
++    // Never do it in the ImGui render path, particularly on first Online open.
++    char fetched_code[18] = "";
++    NetProfile profile;
++    if (t->server[0] && net_profile_load(t->server, &profile, 1))
++        net_format_code(profile.code, fetched_code);
 +    SDL_LockMutex(O.lock);
++    // Ignore stale workers after the player edited the server endpoint.
++    if (!strcmp(O.server, t->server))
++        snprintf(O.code, sizeof O.code, "%s", fetched_code);
 +    O.have_lists = lists_ok;
 +    if (lists_ok) {
 +        O.lists = g_tmp;
@@ -20360,7 +20369,7 @@ index 0000000..3e4df5e
 +        snprintf(O.peers, sizeof O.peers, "%s", p ? p : "");
 +        O.started = 1;
 +    }
-+    load_code();
++    // The refresh worker loads the local profile off the UI thread.
 +    if (O.server[0] && net_enabled()) start(JOB_REFRESH);
 +}
 +
@@ -20625,7 +20634,6 @@ index 0000000..3e4df5e
 +    static uint64_t refreshed;
 +    if (!O.busy && SDL_GetTicks() - refreshed > 5000) {
 +        refreshed = SDL_GetTicks();
-+        load_code();
 +        if (net_enabled() && O.server[0]) start(JOB_REFRESH);
 +    }
 +    float s = scale;

@@ -60,15 +60,24 @@ else:
     if approved.get("format") != 1 or approved.get("channel") != "beta" or approved.get("tag") != candidate:
         raise ValueError("release must use the currently activated Beta candidate")
     (Path("dist") / "channel.json").unlink()
-names = ["mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz", "mkwom.exe",
-         "deploy_server.py", "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
+# The pre-beta queue keeps its build-time mkwom.exe name. Promoted Beta
+# releases expose a single user-facing versioned executable instead.
+patch = "mkwom-patch-windows-x64.zip"
+raw_exe = "mkwom.exe"
+beta_exe = f"MKWOM-{candidate}.exe" if destination == "release" else raw_exe
+base_assets = [patch, "mkwom-server-linux-x64.tar.gz", "deploy_server.py",
+               "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
+names = [*base_assets, beta_exe]
 args = ["gh", "release", "download", candidate, "--dir", "dist"]
 for name in names:
     args.extend(["--pattern", name])
 subprocess.run(args, check=True)
 checks = dict(line.split("  ", 1)[::-1] for line in Path("dist/SHA256SUMS").read_text().splitlines())
-for name in names[:-1]:
-    if hashlib.sha256((Path("dist") / name).read_bytes()).hexdigest() != checks[name]:
+for name in names:
+    if name == "SHA256SUMS":
+        continue
+    checksum_key = raw_exe if name == beta_exe else name
+    if hashlib.sha256((Path("dist") / name).read_bytes()).hexdigest() != checks[checksum_key]:
         raise ValueError("candidate checksum mismatch")
 info = json.loads(Path("dist/build-info.json").read_text())
 if not re.fullmatch(r"[a-f0-9]{40}", info["source_sha"]):
@@ -91,20 +100,27 @@ else:
         tag = requested or next_stable(existing)
     if not parsed_stable(tag):
         raise ValueError("Release version must look like v0.1.2")
-# Candidate/Beta releases retain complete verified provenance and deployment assets.
-# Public stable releases contain only user-facing Windows downloads. Release
-# channel verification is sourced from the already approved immutable Beta tag.
-release_assets = [Path("dist") / n for n in names] if destination == "beta" else []
-if destination == "release":
+# Internal deployment assets remain in Beta, but its sole EXE download has
+# the same versioned naming convention as the stable public Release.
+release_assets = [Path("dist") / n for n in names if n != raw_exe] if destination == "beta" else []
+if destination == "beta":
+    versioned = Path("dist") / f"MKWOM-{tag}.exe"
+    shutil.copyfile(Path("dist") / raw_exe, versioned)
+    if hashlib.sha256(versioned.read_bytes()).hexdigest() != checks[raw_exe]:
+        raise ValueError("versioned Beta executable checksum mismatch")
+    release_assets.append(versioned)
+else:
+    # Release downloads the exact Beta EXE and republishes its bytes unchanged.
     for source, filename in (
-        ("mkwom-patch-windows-x64.zip", f"MKWOM-Patch-{tag}-windows-x64.zip"),
-        ("mkwom.exe", f"MKWOM-Patcher-{tag}.exe"),
+        (patch, f"MKWOM-Patch-{tag}-windows-x64.zip"),
+        (beta_exe, f"MKWOM-{tag}.exe"),
     ):
         target = Path("dist") / filename
         if target.exists():
             raise ValueError(f"duplicate release asset: {filename}")
         shutil.copyfile(Path("dist") / source, target)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != checks[source]:
+        key = raw_exe if source == beta_exe else source
+        if hashlib.sha256(target.read_bytes()).hexdigest() != checks[key]:
             raise ValueError("versioned release asset checksum mismatch")
         release_assets.append(target)
 if destination == "release":
@@ -117,7 +133,7 @@ if destination == "release":
 ## Download and install
 
 1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
-2. Download **`MKWOM-Patcher-{tag}.exe`** below, and close the game.
+2. Download **`MKWOM-{tag}.exe`** below, and close the game.
 3. Double-click the patcher. It will look for the official installation; if needed, click **Browse** and choose the folder containing `mkw.exe`.
 4. Follow the installer steps. The patch downloads automatically, is verified and installed; the installer then closes.
 5. Next time, launch the patched `mkw.exe` from the game folder; MKWOM checks for updates and uses the saved login.

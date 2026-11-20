@@ -36,7 +36,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: build/source/build/win
-          key: win-${{ hashFiles('compatibility.json', 'patches/multiplayer.patch') }}
+          key: win-${{ hashFiles('compatibility.json', 'patches/multiplayer.patch', 'patches/online-cheat-guard.patch') }}
           restore-keys: win-
       - name: Build and round-trip official runtime
         env:

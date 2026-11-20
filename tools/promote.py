@@ -116,7 +116,7 @@ The optional `MKWOM-Patch-{tag}-windows-x64.zip` asset supports offline/advanced
 No PowerShell or command prompt is required for normal installation.
 
 The ZIP is a patch, **not** a complete game or recomp runtime. The original mkw.exe is not included.
-The patcher checks hashes and preserves backups, saves and config for uninstall. Run the game through MKWOM for managed updates.
+The patcher checks hashes and preserves backups, saves and config for uninstall. After setup, start mkw.exe directly; MKWOM checks updates automatically.
 
 ## Compatibility
 

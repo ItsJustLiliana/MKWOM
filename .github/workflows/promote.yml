@@ -23,6 +23,7 @@ jobs:
     environment: ${{ inputs.destination }}
     outputs:
       tag: ${{ steps.promote.outputs.tag }}
+      candidate: ${{ steps.promote.outputs.candidate }}
     steps:
       - uses: actions/checkout@v7
       - id: promote
@@ -56,26 +57,19 @@ jobs:
     permissions:
       contents: read
     with:
-      tag: ${{ needs.promote.outputs.tag }}
+      tag: ${{ needs.promote.outputs.candidate }}
       environment: pre-beta
       restart_if_unchanged: true
     secrets: inherit
-  activate-release:
+  publish-stable:
     if: inputs.destination == 'release'
     needs: [promote, deploy-release]
-    uses: ./.github/workflows/channel.yml
-    with:
-      tag: ${{ needs.promote.outputs.tag }}
-      channel: release
-  publish-release:
-    if: inputs.destination == 'release'
-    needs: [promote, activate-release]
     runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write
     steps:
-      - name: Publish approved non-prerelease as Latest
+      - name: Publish previously approved draft (not Latest yet)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -83,5 +77,29 @@ jobs:
         run: |
           set -euo pipefail
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=false
           test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
+  activate-release:
+    if: inputs.destination == 'release'
+    needs: [promote, publish-stable]
+    uses: ./.github/workflows/channel.yml
+    with:
+      tag: ${{ needs.promote.outputs.tag }}
+      channel: release
+  mark-latest:
+    if: inputs.destination == 'release'
+    needs: [promote, activate-release]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Mark deployed and activated stable Release as Latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.promote.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
+          gh release edit "$RELEASE_TAG" --latest

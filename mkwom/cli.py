@@ -80,13 +80,13 @@ def update_status(game: Path, channel: str) -> dict:
             "patch_update": installed.get("version") != manifest["version"], "channel": channel}
 
 
-def update(game: Path, channel: str):
+def update(game: Path, channel: str, *, force: bool = False):
     game_closed()
     manifest = fetch_channel(channel)
     if manifest.get("installer_version") != __version__:
         raise ValueError("a new patcher is required; download it from the repository Releases page")
     old = read_json(game / ".mkwom/installed.json", {})
-    if old.get("version") == manifest["version"]:
+    if old.get("version") == manifest["version"] and not force:
         verify(game, old)
         print("MKWOM is up to date.")
     else:

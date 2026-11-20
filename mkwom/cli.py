@@ -17,6 +17,8 @@ from .installer import install, uninstall, read_json, json_write, game_closed, v
 
 REPO = "ItsJustLiliana/MKWOM"
 CHANNELS = ("pre-beta", "beta", "release")
+# Official community lobby: no Arch/home-server fallback.
+COMMUNITY_ENDPOINT = "31.70.192.231:18443"
 
 
 def download(url: str, limit: int) -> bytes:
@@ -102,11 +104,9 @@ def update(game: Path, channel: str):
         print("MKWOM patch updated.")
     settings = read_json(game / ".mkwom/settings.json", {})
     settings["channel"] = channel
-    # Channel endpoint is controlled by the channel publisher; current setup can keep its saved endpoint.
-    if manifest.get("endpoint") and settings.get("endpoint_mode") != "custom" and not (
-        settings.get("endpoint") and "endpoint_mode" not in settings
-    ):
-        settings["endpoint"] = endpoint(manifest["endpoint"])
+    # Pin the official STRATO lobby; overwrite legacy Arch/saved endpoint values.
+    settings["endpoint"] = COMMUNITY_ENDPOINT
+    settings["endpoint_mode"] = "channel"
     json_write(game / ".mkwom/settings.json", settings)
 
 
@@ -129,7 +129,7 @@ def launch(game: Path):
     if not data.is_absolute():
         data = game / data
     active = ini_values(data / "mkw.ini")
-    address = settings.get("endpoint") or active.get("ONLINE_SERVER")
+    address = COMMUNITY_ENDPOINT
     if not address:
         raise ValueError("no community endpoint configured; operator must configure this channel first")
     env = dict(os.environ, MKW_ONLINE="1", MKW_ONLINE_SERVER=endpoint(address), MKW_SERVER_HOST="0",

@@ -9682,7 +9682,7 @@ index 0000000..18cc1ef
 +    ok = 0;  // A valid local token is NOT a successful remote login.
 +    HINTERNET ses = WinHttpOpen(L"MKWOM/0.1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
 +                                WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-+    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom.liliananuzohra.com", 443, 0) : NULL;
++    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom-api.liliananuzohra.com", 443, 0) : NULL;
 +    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
 +                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
 +    char body[96];

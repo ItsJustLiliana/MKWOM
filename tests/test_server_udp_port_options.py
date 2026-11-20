@@ -42,3 +42,22 @@ def test_session_ice_advertises_matching_stun_and_turn_ports():
 def test_no_production_deployment_change():
     # Native runtime in patch only. Operators must not start two servers yet.
     assert "static int parse_udp_ports(" in source("srv_main.c")
+
+
+def test_native_drain_marker_rejects_new_lobby_creation_and_join_only():
+    header = source("srv.h")
+    main = source("srv_main.c")
+    session = source("srv_session.c")
+    assert "int srv_draining(void);" in header
+    assert '"%s/drain"' in main
+    for name in ("create_room", "create_ticket", "join"):
+        start = session.index(f"static void {name}(")
+        assert "if (srv_draining())" in session[start:start + 320]
+        assert 'ST_UNAVAILABLE, "server updating: use the new lobby"' in session[start:start + 320]
+    tick = session[session.index("void srv_session_tick("):]
+    assert "if (srv_draining())" in tick
+    assert "tickets[i].state = T_CANCELLED" in tick
+    assert "matcher(now);" in tick
+    # Existing writes/referee code is not blocked by the drain admission gate.
+    gamesync = source("srv_main.c")
+    assert "srv_session_tick" in gamesync

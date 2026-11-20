@@ -32,7 +32,7 @@ def deliver_one(path: Path, channel: str, api_url: str, secret: str) -> bool:
     event = json.loads(raw)
     if event.get("channel") != channel or event.get("race_id") != path.stem:
         raise ValueError("Score channel or race identity mismatch")
-    if event.get("game_mode") not in ("versus", "knockout"):
+    if event.get("game_mode") not in ("race", "knockout", "battle"):
         raise ValueError("Missing or invalid referee game mode")
     players = event.get("players")
     if not isinstance(players, list) or not 1 <= len(players) <= 32:

@@ -1,3 +1,5 @@
+> **Archived Arch-era bootstrap instructions.** The current host is STRATO, with configuration and cutover steps in [STRATO migration](strato-migration.md). Do not run these Arch installers against STRATO or use Arch as a production fallback.
+
 # MKWOM: three manually promoted environments
 
 The intended path is **source -> tested pre-beta candidate -> manually activate pre-beta -> manually promote to Beta -> manually promote to Release**.

@@ -76,8 +76,9 @@ jobs:
           RELEASE_TAG: ${{ needs.promote.outputs.tag }}
         run: |
           set -euo pipefail
-          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
-          gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=false
+          if test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest=false
+          fi
           test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '.isDraft or .isPrerelease')" = false
   activate-release:
     if: inputs.destination == 'release'

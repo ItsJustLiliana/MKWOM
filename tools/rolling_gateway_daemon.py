@@ -252,7 +252,8 @@ class RollingGatewayService:
             g = self._generation(current)
             await asyncio.to_thread(health, g["lobby"][0], g["lobby"][1], g["ca"])
             self._health_failures = 0
-        except (OSError, ValueError, RuntimeError, ssl.SSLError) as exc:
+        except (OSError, ValueError, RuntimeError, ssl.SSLError,
+                subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             self._health_failures += 1
             print(f"Active generation {current} health failure {self._health_failures}: {exc}", flush=True)
             if self._health_failures < 3:

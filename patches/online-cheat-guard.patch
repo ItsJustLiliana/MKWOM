@@ -51,36 +51,34 @@ diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
 diff --git a/runtime/ui/menu/settings_tabs.cpp b/runtime/ui/menu/settings_tabs.cpp
 --- a/runtime/ui/menu/settings_tabs.cpp
 +++ b/runtime/ui/menu/settings_tabs.cpp
-@@ -642,8 +642,12 @@
+@@ -642,17 +642,22 @@
  
  bool settings_modal(void) { return g_modal || binds_modal(); }
  
 -void settings_tabs(float scale, float bottom) {
 -    int step = settings_modal() || ImGui::GetIO().WantTextInput                                           ? 0
+-             : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
+-             : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
+-                                                                                                         : 0;
+-    if (step) g_tab_request = (g_tab + step + TAB_COUNT) % TAB_COUNT;
+-    if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
+-
+-    if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
+-        for (int k = 0; k < TAB_COUNT; k++) {
+-            char label[128];
 +void settings_tabs(float scale, float bottom) {
 +    const bool online = strcmp(cfg_value("MKW_ONLINE"), "0") != 0;
 +    const int visible_tabs = online ? TAB_COUNT - 1 : TAB_COUNT;
 +    if (online && g_tab == TAB_HACKS) g_tab = TAB_ONLINE;
 +    if (online && g_tab_request == TAB_HACKS) g_tab_request = TAB_ONLINE;
 +    int step = settings_modal() || ImGui::GetIO().WantTextInput                                           ? 0
-              : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
-              : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
-                                                                                                          : 0;
-@@ -647,7 +651,7 @@
-              : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
-              : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
-                                                                                                          : 0;
--    if (step) g_tab_request = (g_tab + step + TAB_COUNT) % TAB_COUNT;
++             : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
++             : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
++                                                                                                         : 0;
 +    if (step) g_tab_request = (g_tab + step + visible_tabs) % visible_tabs;
-     if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
- 
-     if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
-@@ -651,8 +655,9 @@
-     if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
- 
-     if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
--        for (int k = 0; k < TAB_COUNT; k++) {
--            char label[128];
++    if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
++
++    if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
 +        for (int k = 0; k < TAB_COUNT; k++) {
 +            if (online && k == TAB_HACKS) continue;
 +            char label[128];

@@ -14698,7 +14698,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,624 @@
+@@ -0,0 +1,643 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15120,6 +15120,25 @@ index 0000000..7cc41f7
 +    if (st != ST_OK) {
 +        docs_rollback(&s->docs);
 +        return st;
++    }
++    // Existing rooms may continue their in-progress race during drain, but
++    // cannot submit a first request for another race after the cutover.
++    if (srv_draining()) {
++        for (int i = from; i < s->docs.nchanged; i++) {
++            const char *path = s->docs.changed[i];
++            if (strncmp(path, "@@RefereeRequest/", 17)) continue;
++            const char *req = strstr(path, "/Request/");
++            if (!req || !req[9]) continue;
++            req += 9;
++            int already_started = 0;
++            for (int j = 0; j < RACES_MAX; j++)
++                if (s->referee.races[j].used && !strcmp(s->referee.races[j].request_id, req))
++                    already_started = 1;
++            if (!already_started) {
++                docs_rollback(&s->docs);
++                return ST_UNAVAILABLE;
++            }
++        }
 +    }
 +    if ((st = docs_end(&s->docs, now)) != ST_OK) return st;
 +    referee_batch(&s->referee, &s->docs, from, srv_ms(), now);

@@ -22717,7 +22717,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1065 @@
+@@ -0,0 +1,1124 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -22905,6 +22905,65 @@ index 0000000..b955046
 +    snapshot = next(line for line in log.read_text().splitlines() if "capacity: sessions=" in line)
 +    assert "sessions=0/256" in snapshot
 +    assert "members=0" in snapshot and "listeners=0" in snapshot
++
++
++def test_second_native_generation_uses_private_tcp_udp_and_data(server: Path, tmp_path: Path) -> None:
++    """Run a second native server beside the first without sharing UDP listeners or disk writes."""
++    exe = os.environ.get("MKW_SRV_EXE")
++    if not exe:
++        pytest.skip("native server binary not provided")
++    # The server fixture keeps all production-default UDP ports open in a first process.
++    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
++        tcp.bind(("127.0.0.1", 0))
++        port = tcp.getsockname()[1]
++    udp_ports = []
++    reserved = []
++    for _ in range(5):
++        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
++        sock.bind(("127.0.0.1", 0))
++        reserved.append(sock)
++        udp_ports.append(sock.getsockname()[1])
++    for sock in reserved:
++        sock.close()
++    data = tmp_path / "second-generation"
++    data.mkdir()
++    (data / "settings.txt").write_text("login_limit=64\\n")
++    logfile = tmp_path / "second-server.log"
++    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
++            "--udp-ports", ",".join(map(str, udp_ports)), "--data", str(data), "--seconds", "20"]
++    with logfile.open("w") as output:
++        second = subprocess.Popen(args, stderr=output)
++    try:
++        deadline = time.monotonic() + 15
++        while time.monotonic() < deadline:
++            assert second.poll() is None, logfile.read_text(errors="replace")
++            try:
++                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
++                break
++            except OSError:
++                time.sleep(0.1)
++        else:
++            pytest.fail("second generation never opened its private TCP port")
++        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
++            sock.bind(("127.0.0.1", 0))
++            sock.settimeout(1)
++            request = struct.pack(">HHI", 1, 0, 0x2112A442) + os.urandom(12)
++            for stun in udp_ports[:2]:
++                sock.sendto(request, ("127.0.0.1", stun))
++                reply = sock.recv(512)
++                assert reply[:2] == b"\\x01\\x01" and reply[8:20] == request[8:20]
++        # The original server remains healthy throughout the second server's lifetime.
++        with socket.create_connection(("127.0.0.1", PORT), timeout=2):
++            pass
++        assert (data / "pki/ca.der").exists() and (server / "pki/ca.der").exists()
++        assert data.resolve() != server.resolve()
++    finally:
++        second.terminate()
++        try:
++            second.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            second.kill()
++            second.wait()
 +
 +
 +def test_srv_stun_over_udp(server: Path) -> None:

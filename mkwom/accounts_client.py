@@ -91,17 +91,20 @@ def current_user(channel: str = "pre-beta") -> dict | None:
     return call("/me", token=saved, channel=channel) if saved else None
 
 
-def channel_scores(channel: str) -> dict:
+def channel_scores(channel: str, game_mode: str | None = None) -> dict:
     """Authenticated score history for exactly the selected online channel."""
     if channel not in ("beta", "release"):
         raise AuthError("Scores are available separately for Beta and Release")
+    if game_mode is not None and game_mode not in ("versus", "knockout"):
+        raise AuthError("Unsupported score game mode")
     saved = token()
     if not saved:
         raise AuthError("Log in to MKWOM to view your scores")
     if not re.fullmatch(r"[a-f0-9]{64}", saved):
         raise AuthError("Invalid stored account token")
     request = urllib.request.Request(
-        api_base(channel) + "/scores?channel=" + channel,
+        api_base(channel) + "/scores?channel=" + channel +
+        ("&game_mode=" + game_mode if game_mode else ""),
         headers={"Accept": "application/json", "Authorization": "Bearer " + saved,
                  "User-Agent": "MKWOM/0.1"},
         method="GET")
@@ -113,8 +116,8 @@ def channel_scores(channel: str) -> dict:
             if len(data) > 16 * 1024:
                 raise AuthError("Score history response too large")
             payload = json.loads(data)
-            if payload.get("channel") != channel:
-                raise AuthError("Score history channel mismatch")
+            if payload.get("channel") != channel or payload.get("game_mode") != game_mode:
+                raise AuthError("Score history namespace mismatch")
             return payload
     except urllib.error.HTTPError as exc:
         raise AuthError("Could not read channel scores (" + str(exc.code) + ")") from None

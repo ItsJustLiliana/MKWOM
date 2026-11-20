@@ -119,3 +119,21 @@ Actual end-to-end Battle scoring in gameplay has not yet been validated. Battle 
 operational until two-PC Battle race captures/tests prove the classification.
 The full dual-generation live handoff remains blocked on its separate protocol
 and deployment acceptance work.
+
+## Account-ledger Elo authority
+
+The account API now computes Elo for each verified native finishing-order event
+inside a serialized SQLite transaction. Ratings start at 3000 independently
+for `(account, channel, game_mode)`. The writer's submitted `points` fields
+are included in duplicate-event replay detection but **never used to increment
+account ratings**. A solo race earns zero Elo; adversarial 100,000-point events
+cannot directly raise an account rating. For multiplayer, a K=24 pairwise Elo
+calculation uses the participant ratings from the selected channel/mode only.
+The native game may still display its own provisional ranking until protocol
+synchronization of server-owned ratings is implemented; this remains an
+acceptance criterion.
+
+This is not a complete anti-cheat system: finishing-order reports currently
+originate in game clients. A malicious client could still falsify rank unless
+an independent authoritative result protocol or sufficiently robust verified
+consensus is in place.

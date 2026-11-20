@@ -16,6 +16,7 @@ from tools.rolling_drain import DRAIN_SECONDS
 STUN_COOKIE = 0x2112A442
 PORT_COUNT = 5
 MAX_FLOWS = 4096
+MAX_PENDING_PACKETS = 512
 
 
 def mapped_reply(data: bytes, original: tuple[str, int]) -> bytes:
@@ -71,7 +72,12 @@ class _Frontend(asyncio.DatagramProtocol):
         self.index = index
 
     def datagram_received(self, data, address):
-        asyncio.create_task(self.gateway._forward(self.index, data, address))
+        # Bound asynchronous tasks before scheduling them. A UDP flood must not
+        # create an unlimited number of pending socket-opening operations.
+        if self.gateway._pending_packets >= MAX_PENDING_PACKETS:
+            return
+        self.gateway._pending_packets += 1
+        asyncio.create_task(self.gateway._receive(self.index, data, address))
 
 
 class _Backend(asyncio.DatagramProtocol):
@@ -101,6 +107,8 @@ class RollingUDPGateway:
         self._watchdog = None
         self._switch_lock = asyncio.Lock()
         self._cutover_gate: asyncio.Event | None = None
+        self._pending_packets = 0
+        self._flow_create_lock = asyncio.Lock()
 
     async def start(self, host: str, public_ports: tuple[int, ...]) -> None:
         if self.frontends or len(public_ports) != PORT_COUNT or len(set(public_ports)) != PORT_COUNT:
@@ -116,6 +124,12 @@ class RollingUDPGateway:
             raise
         self._watchdog = asyncio.create_task(self._watch())
 
+    async def _receive(self, index: int, data: bytes, client: tuple[str, int]):
+        try:
+            await self._forward(index, data, client)
+        finally:
+            self._pending_packets -= 1
+
     async def _forward(self, index: int, data: bytes, client: tuple[str, int]):
         key = (index, client[0], client[1])
         flow = self.flows.get(key)
@@ -124,18 +138,22 @@ class RollingUDPGateway:
                 await self._cutover_gate.wait()
             flow = self.flows.get(key)
         if flow is None:
-            if len(self.flows) >= MAX_FLOWS:
-                return
-            generation = self.current
-            endpoint = generation.endpoints[index]
-            loop = asyncio.get_running_loop()
-            try:
-                transport, _ = await loop.create_datagram_endpoint(
-                    lambda: _Backend(self, key), remote_addr=endpoint)
-            except OSError:
-                return
-            flow = UDPFlow(generation, client, index, transport, self.clock())
-            self.flows[key] = flow
+            async with self._flow_create_lock:
+                # Concurrent packets from the same player must reuse one socket.
+                flow = self.flows.get(key)
+                if flow is None:
+                    if len(self.flows) >= MAX_FLOWS:
+                        return
+                    generation = self.current
+                    endpoint = generation.endpoints[index]
+                    loop = asyncio.get_running_loop()
+                    try:
+                        transport, _ = await loop.create_datagram_endpoint(
+                            lambda: _Backend(self, key), remote_addr=endpoint)
+                    except OSError:
+                        return
+                    flow = UDPFlow(generation, client, index, transport, self.clock())
+                    self.flows[key] = flow
         else:
             flow.seen = self.clock()
         flow.upstream.sendto(data)

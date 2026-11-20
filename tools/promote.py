@@ -1,4 +1,4 @@
-"""Copy a tested candidate to Beta or a draft Release, never rebuilding or copying accounts; Actions only."""
+"""Promote queued candidate to Beta or active Beta to Release without rebuilding; Actions only."""
 import hashlib
 import json
 import os
@@ -7,7 +7,7 @@ import re
 import shutil
 import subprocess
 
-candidate = os.environ["CANDIDATE_TAG"]
+candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
 if destination == "beta":
     required_source = "pre-beta"
@@ -15,6 +15,26 @@ elif destination == "release":
     required_source = "beta"
 else:
     raise ValueError("destination must be beta or release")
+# With no explicit tag, Beta chooses the newest *successfully queued* build.
+# Release chooses the active Beta pointer; neither choice skips verification.
+if not candidate and destination == "beta":
+    releases = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "100", "--json", "tagName,createdAt"], text=True))
+    for item in sorted(releases, key=lambda obj: obj.get("createdAt", ""), reverse=True):
+        proposed = item.get("tagName", "")
+        if not re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}", proposed):
+            continue
+        detail = json.loads(subprocess.check_output(
+            ["gh", "release", "view", proposed, "--json", "assets"], text=True))
+        if any(asset.get("name") == "queued-strato.json" for asset in detail.get("assets", [])):
+            candidate = proposed
+            break
+    if not candidate:
+        raise ValueError("no successfully queued STRATO pre-beta candidate found")
+if not candidate and destination == "release":
+    data = subprocess.check_output(
+        ["gh", "release", "download", "channel-beta", "--pattern", "channel.json", "--output", "-"], text=True)
+    candidate = json.loads(data)["tag"]
 if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
 # Pre-beta is a build queue, NOT a public client channel or running server.

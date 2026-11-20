@@ -9672,7 +9672,7 @@ index 0000000..18cc1ef
 +    }
 +    char access[65] = {0};
 +    int ok = 0;
-+    size_t offset = (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\\n", 9)) ? 9 : (output.cbData == 69 && !memcmp(output.pbData, "beta\\n", 5)) ? 5 : (output.cbData == 72 && !memcmp(output.pbData, "release\\n", 8)) ? 8 : 0;
++    size_t offset = (output.cbData == 73 && !memcmp(output.pbData, "pre-beta\n", 9)) ? 9 : (output.cbData == 69 && !memcmp(output.pbData, "beta\n", 5)) ? 5 : (output.cbData == 72 && !memcmp(output.pbData, "release\n", 8)) ? 8 : 0;
 +    if (offset) { memcpy(access, output.pbData + offset, 64);
 +        ok = 1;
 +        for (int i = 0; i < 64; i++)

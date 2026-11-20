@@ -47,7 +47,7 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     if not profile or not profile.get("id"):
         raise AuthError("Log in to your MKWOM account before installing")
     phase(20, "Downloading and verifying the approved patch")
-    update(game, channel)
+    update(game, channel, force=bool(installed_patch(game)))
     phase(75, "Protecting account session")
     access = token()
     if not access:

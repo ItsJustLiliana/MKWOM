@@ -12985,7 +12985,7 @@ new file mode 100644
 index 0000000..92bfe66
 --- /dev/null
 +++ b/runtime/srv/srv.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,28 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server built into the executable: `mkw.exe --server [--host ADDR]... [--port P] [--data DIR]
 +// [--seconds S]`, a process of its own (the start screen or the game starts it, and it ends with them), so a fault in it
@@ -13007,6 +13007,9 @@ index 0000000..92bfe66
 +#include <stdint.h>
 +uint64_t srv_ms(void);
 +const char *srv_data_dir(void);
++// Local control: presence of <data>/drain rejects NEW lobby admissions only.
++// Existing Gamesync streams and final result messages continue unchanged.
++int srv_draining(void);
 +// Configured native UDP listeners: STUN1/STUN2/NAT1/NAT2/NAT3.
 +int srv_udp_port(size_t index);
 +// Cryptographically random bytes (ids, room numbers, tokens); 1 on success.
@@ -15840,7 +15843,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,402 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -15951,6 +15954,15 @@ index 0000000..de6177a
 +
 +static const char *data_dir = "online-server";
 +const char *srv_data_dir(void) { return data_dir; }
++
++int srv_draining(void) {
++    char marker[1200];
++    if (snprintf(marker, sizeof marker, "%s/drain", data_dir) >= (int)sizeof marker) return 1;
++    FILE *f = fopen(marker, "rb");
++    if (!f) return 0;
++    fclose(f);
++    return 1;
++}
 +
 +int srv_random(void *buf, size_t n) { return plat_random(buf, n); }
 +
@@ -17420,7 +17432,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1054 @@
+@@ -0,0 +1,1073 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17764,6 +17776,10 @@ index 0000000..fb8f922
 +// ---- rooms: CreateGameSessionCreationTicket {1: parent, 2: CreationTicket {2: config, 3: TicketMember (the host),
 +// 6: GameSessionTemplate {11: attributes}}}
 +static void create_room(SrvCall *c, const uint8_t *msg, size_t len) {
++    if (srv_draining()) {
++        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
++        return;
++    }
 +    const char *uid = srv_call_uid(c);
 +    PbField ct, cfg = {0}, host, tmpl, f;
 +    SrvMap host_attrs = {0}, attrs = {0};
@@ -17850,6 +17866,10 @@ index 0000000..fb8f922
 +// A friend may join a private room or an accepting public lobby. Closed/full public races refuse new players.
 +// Reply {1: MemberEntry..., 2: GameSession}.
 +static void join(SrvCall *c, const uint8_t *msg, size_t len) {
++    if (srv_draining()) {
++        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
++        return;
++    }
 +    const char *uid = srv_call_uid(c);
 +    char tenant[64];
 +    tenant_of(c, tenant);
@@ -18058,6 +18078,10 @@ index 0000000..fb8f922
 +
 +// CreateMatchmakingTicket {1: parent, 2: Ticket {2: config, 4: repeated TicketMember {1: user, 2: attributes}}}
 +static void create_ticket(SrvCall *c, const uint8_t *msg, size_t len) {
++    if (srv_draining()) {
++        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
++        return;
++    }
 +    const char *uid = srv_call_uid(c);
 +    PbField tk, f, a;
 +    PbOut o = {0};
@@ -18432,7 +18456,14 @@ index 0000000..fb8f922
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
 +    last = now;
-+    matcher(now);
++    if (srv_draining()) {
++        // Do not create races from already-queued tickets after cutover.
++        for (int i = 0; i < TICKETS_MAX; i++)
++            if (tickets[i].used && (tickets[i].state == T_SEARCHING || tickets[i].state == T_PLACING))
++                tickets[i].state = T_CANCELLED;
++    } else {
++        matcher(now);
++    }
 +    if (now - last_abandon >= ABANDON_MS) {   // tickets whose player is gone (an unclean exit never cancels its own)
 +        last_abandon = now;
 +        for (int i = 0; i < TICKETS_MAX; i++)

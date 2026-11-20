@@ -89,3 +89,36 @@ def test_divergent_transports_are_fail_closed():
         with pytest.raises(CutoverError, match="inconsistent"):
             await ctrl.switch(*targets())
     asyncio.run(run())
+
+
+def test_new_connections_wait_for_both_transport_switches():
+    async def scenario():
+        tcp, udp = FakeTCP(), FakeUDP()
+        ready = asyncio.Event()
+        proceed = asyncio.Event()
+        original = udp.switch
+        async def delayed_switch(target):
+            ready.set()
+            await proceed.wait()
+            await original(target)
+        udp.switch = delayed_switch
+        controller = RollingCutoverController(tcp, udp)
+        task = asyncio.create_task(controller.switch(*targets()))
+        try:
+            await asyncio.wait_for(ready.wait(), 2)
+            assert not controller._gate.is_set()
+            assert tcp.current.name == "new"
+            assert udp.current.name == "old"
+            waiter = asyncio.create_task(controller._gate.wait())
+            await asyncio.sleep(0)
+            assert not waiter.done()
+            proceed.set()
+            assert await asyncio.wait_for(task, 2) == "old"
+            await asyncio.wait_for(waiter, 2)
+            assert tcp.current.name == udp.current.name == "new"
+        finally:
+            proceed.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(scenario())

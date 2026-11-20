@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 
 candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
@@ -32,9 +33,10 @@ if not candidate and destination == "beta":
     if not candidate:
         raise ValueError("no successfully queued STRATO pre-beta candidate found")
 if not candidate and destination == "release":
-    data = subprocess.check_output(
-        ["gh", "release", "download", "channel-beta", "--pattern", "channel.json", "--output", "-"], text=True)
-    candidate = json.loads(data)["tag"]
+    with tempfile.TemporaryDirectory() as directory:
+        subprocess.run(["gh", "release", "download", "channel-beta", "--dir", directory,
+                        "--pattern", "channel.json"], check=True)
+        candidate = json.loads((Path(directory) / "channel.json").read_text())["tag"]
 if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
 # Pre-beta is a build queue, NOT a public client channel or running server.

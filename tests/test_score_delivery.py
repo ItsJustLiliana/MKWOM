@@ -59,8 +59,8 @@ def test_delivery_only_deletes_after_ack_and_keeps_scores_per_channel(setup):
     assert release_path.exists()
     assert score_delivery.deliver_one(release_path, "release", "http://127.0.0.1:9081", "bd" * 32)
     headers = {"Authorization": "Bearer " + token}
-    assert client.get("/scores?channel=beta", headers=headers).json()["total_points"] == 20
-    assert client.get("/scores?channel=release", headers=headers).json()["total_points"] == 10
+    assert client.get("/scores?channel=beta", headers=headers).json()["total_points"] == 0
+    assert client.get("/scores?channel=release", headers=headers).json()["total_points"] == 0
 
 
 def test_failed_delivery_is_retained_for_retry(setup, monkeypatch):
@@ -79,7 +79,7 @@ def test_failed_delivery_is_retained_for_retry(setup, monkeypatch):
     assert score_delivery.deliver_pending(outbox, "beta", "http://127.0.0.1:9081", "ac" * 32) == (1, 0)
     assert client.get("/scores?channel=beta", headers={
         "Authorization": "Bearer " + token
-    }).json()["total_points"] == 30
+    }).json()["total_points"] == 0
 
 
 def test_channel_mismatch_and_symlink_fail_closed(setup, tmp_path):

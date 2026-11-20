@@ -14,7 +14,6 @@ from .autostart import install_helper
 from .cli import COMMUNITY_ENDPOINT, fetch_channel, update
 from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
-from .installer import json_write, read_json
 from .session_storage import protect_for_game
 
 BLUE = "#3069dc"

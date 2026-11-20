@@ -1,3 +1,5 @@
+> **Current production candidate host: STRATO VPS.** This document records the original Arch pre-beta setup. Use [STRATO migration](strato-migration.md) instead; the account hostname is now https://mkwom-api.liliananuzohra.com.
+
 # MKWOM pre-beta account API on Arch Linux
 
 This is an **isolated account-service foundation**, not complete online-play authentication. It provides durable

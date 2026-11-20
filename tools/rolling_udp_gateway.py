@@ -29,7 +29,7 @@ def mapped_reply(data: bytes, original: tuple[str, int]) -> bytes:
         kind = struct.unpack_from(">I", data)[0]
         if 101 <= kind <= 103:
             return data[:4] + struct.pack(">I", port) + ip + data[12:]
-    if len(data) < 20 or data[:2] != b"\\x01\\x01":
+    if len(data) < 20 or data[:2] != b"\x01\x01":
         return data
     if struct.unpack_from(">H", data, 2)[0] != len(data) - 20:
         return data

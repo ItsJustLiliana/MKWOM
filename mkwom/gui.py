@@ -65,7 +65,7 @@ class Launcher:
         self.events = queue.Queue()
         self.busy = False
         self.folder = tk.StringVar(value=str(detect_game() or ""))
-        self.channel = tk.StringVar(value="pre-beta")
+        self.channel = tk.StringVar(value="release")
         self.endpoint = tk.StringVar(value=COMMUNITY_ENDPOINT)
         self.status = tk.StringVar(value="Choose your game folder to get started.")
         self.details = tk.StringVar(value="")
@@ -134,7 +134,7 @@ class Launcher:
         line = tk.Frame(more, padx=12, pady=10)
         line.pack(fill="x")
         ttk.Label(line, text="Update channel").grid(row=0, column=0, sticky="w")
-        self.channels = ttk.Combobox(line, values=CHANNELS, state="readonly",
+        self.channels = ttk.Combobox(line, values=("beta", "release"), state="readonly",
                                      textvariable=self.channel, width=13)
         self.channels.grid(row=0, column=1, padx=(12, 0), sticky="w")
         ttk.Label(line, text="Official STRATO multiplayer server").grid(row=1, column=0, sticky="w", pady=(12, 0))
@@ -196,7 +196,7 @@ class Launcher:
         try:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
-            self.channel.set(settings.get("channel", "pre-beta"))
+            self.channel.set(settings.get("channel") if settings.get("channel") in ("beta", "release") else "release")
             self.endpoint.set(COMMUNITY_ENDPOINT)
             self.update_auth_buttons()
             version = installed_version(folder)

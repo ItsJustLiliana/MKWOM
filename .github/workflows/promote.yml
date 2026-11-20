@@ -15,7 +15,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: promote-${{ inputs.destination }}
+  group: promote-strato-live-server
   cancel-in-progress: false
 jobs:
   promote:

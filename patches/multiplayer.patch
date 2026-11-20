@@ -10774,7 +10774,7 @@ index b7fc741..b7d2cce 100644
  HOST_OVERRIDE("_ZN2nn3ldn8FinalizeEv", ov_nothing);
  HOST_OVERRIDE("_ZN2nn3ldn8GetStateEv", ov_ldn_state);
  HOST_OVERRIDE("_ZN2nn3ldn19GetDisconnectReasonEv", ov_ldn_state);
-@@ -114,12 +237,1249 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
+@@ -114,12 +237,1275 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
  HOST_OVERRIDE("_ZN2nn3ldn6RejectENS0_11Ipv4AddressE", ov_ldn_disabled);
  HOST_OVERRIDE("_ZN2nn3ldn22AttachStateChangeEventEPNS_2os15SystemEventTypeE", ov_nothing);
  
@@ -11249,11 +11249,25 @@ index b7fc741..b7d2cce 100644
 +        if (sendto(f->s, buf, (int)len, 0, (struct sockaddr *)&p, sizeof p) >= 0) fanned = 1;
 +    }
 +    long n;
++#ifdef _WIN32
++    ULONGLONG mkwom_send_started = GetTickCount64();
++#endif
 +    dontwait(f, flags, 1);
 +    AWAY(BLOCKING(f, flags) && f->type == 1,
 +         n = has ? (long)sendto(f->s, buf, (int)len, host_flags(flags), (struct sockaddr *)&h, sizeof h)
 +                 : (long)send(f->s, buf, (int)len, host_flags(flags)));
 +    int e = n < 0 ? host_error() : 0;
++#ifdef _WIN32
++    ULONGLONG mkwom_send_ms = GetTickCount64() - mkwom_send_started;
++    if (mkwom_send_ms >= 100) {
++        static volatile uint32_t slow_sends;
++        uint32_t occurrence = __atomic_add_fetch(&slow_sends, 1, __ATOMIC_RELAXED);
++        if (occurrence <= 24 || !(occurrence & 127u))
++            rt_log("mkwom-diag: socket send duration=%llu ms fd=%d tcp=%d blocking=%d result=%ld error=%d caller=%#llx occurrence=%u",
++                   (unsigned long long)mkwom_send_ms, (int)arg_x(c, 0), f->type == 1,
++                   BLOCKING(f, flags) && f->type == 1, n, e, (unsigned long long)c->x[30], occurrence);
++    }
++#endif
 +    dontwait(f, flags, 0);
 +    if (n < 0 && fanned) n = (long)len;
 +    udp_log_io(f, (int)arg_x(c, 0), 1, n, e);
@@ -11287,10 +11301,22 @@ index b7fc741..b7d2cce 100644
 +    memset(&h, 0, sizeof h);
 +    if (len > 0x7fffffff) len = 0x7fffffff;
 +    long n;
++#ifdef _WIN32
++    ULONGLONG mkwom_recv_started = GetTickCount64();
++#endif
 +    dontwait(f, flags, 1);
 +    AWAY(BLOCKING(f, flags), n = (long)recvfrom(f->s, buf, (int)len, host_flags(flags), (struct sockaddr *)&h, &hl));
 +    int e = n < 0 ? host_error() : 0;
 +#ifdef _WIN32
++    ULONGLONG mkwom_recv_ms = GetTickCount64() - mkwom_recv_started;
++    if (mkwom_recv_ms >= 100) {
++        static volatile uint32_t slow_recvs;
++        uint32_t occurrence = __atomic_add_fetch(&slow_recvs, 1, __ATOMIC_RELAXED);
++        if (occurrence <= 24 || !(occurrence & 127u))
++            rt_log("mkwom-diag: socket recv duration=%llu ms fd=%d tcp=%d blocking=%d result=%ld error=%d caller=%#llx occurrence=%u",
++                   (unsigned long long)mkwom_recv_ms, (int)arg_x(c, 0), f->type == 1,
++                   BLOCKING(f, flags), n, e, (unsigned long long)c->x[30], occurrence);
++    }
 +    if (n < 0 && e == G_EMSGSIZE) n = (long)len, e = 0;   // POSIX truncates a datagram silently
 +#endif
 +    dontwait(f, flags, 0);

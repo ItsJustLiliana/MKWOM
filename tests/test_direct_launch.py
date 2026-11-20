@@ -2,6 +2,7 @@
 import pytest
 
 from mkwom.direct_launch import persist_online_settings
+from mkwom.cli import COMMUNITY_ENDPOINT
 from mkwom.installer import json_write
 
 
@@ -26,17 +27,15 @@ def test_direct_launch_persists_online_without_overwriting_preferences(tmp_path)
     assert (game / "mkw.ini").read_bytes() == first
 
 
-def test_direct_launch_rejects_invalid_server_before_editing_ini(tmp_path):
+def test_direct_launch_replaces_legacy_server(tmp_path):
     (tmp_path / "mkw.ini").write_text("[video]\nFPS=60\n")
     original = (tmp_path / "mkw.ini").read_bytes()
     json_write(tmp_path / ".mkwom/settings.json", {"endpoint": "http://evil.example"})
-    with pytest.raises(ValueError, match="endpoint"):
-        persist_online_settings(tmp_path)
-    assert (tmp_path / "mkw.ini").read_bytes() == original
+    persist_online_settings(tmp_path)
+    assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT).encode() in (tmp_path / "mkw.ini").read_bytes()
 
 
-def test_direct_launch_requires_server_before_setup_is_complete(tmp_path):
+def test_direct_launch_defaults_to_strato_server(tmp_path):
     json_write(tmp_path / ".mkwom/settings.json", {"channel": "pre-beta"})
-    with pytest.raises(ValueError, match="Choose a multiplayer server"):
-        persist_online_settings(tmp_path)
-    assert not (tmp_path / "mkw.ini").exists()
+    persist_online_settings(tmp_path)
+    assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT).encode() in (tmp_path / "mkw.ini").read_bytes()

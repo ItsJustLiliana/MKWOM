@@ -162,7 +162,6 @@ def test_native_old_generation_is_stopped_only_after_both_gateways_retire(tmp_pa
         conf = config(tmp_path)
         conf["generations"]["old"]["unit"] = "mkw-old.service"
         service = RollingGatewayService(conf)
-        old = service.tcp.current
         new_tcp = Generation("new", ("127.0.0.1", 21443), ("127.0.0.1", 21444))
         new_udp = UDPGeneration("new", tuple(("127.0.0.1", p) for p in
                                       (15478, 15479, 13025, 13125, 15334)))

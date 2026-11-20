@@ -20,7 +20,7 @@ if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", os.environ["DEPLOY_UNIT"]):
     raise ValueError("invalid service unit")
 if not re.fullmatch(r"[0-9]+", os.environ["LOBBY_PORT"]):
     raise ValueError("invalid lobby port")
-if not os.environ["DEPLOY_ROOT"].startswith("/home/mkwom/projects/MKWOM-server"):
+if os.environ["DEPLOY_ROOT"] != "/home/mkwom/projects/MKWOM-server":
     raise ValueError("deployment root must belong to MKWOM on STRATO")
 run_id = os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
 if not re.fullmatch(r"[0-9]+-[0-9]+", run_id):

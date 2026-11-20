@@ -59,6 +59,8 @@ def persist_online_settings(game: Path) -> None:
     # Prevent the original recomp updater from replacing the patched executable
     # behind MKWOM's back. The patch manager remains responsible for updates.
     _set_section_value(lines, "launcher", "UPDATE_CHECK", "0")
+    # Online Play requires this scheduler setting in the game-local INI.
+    _set_section_value(lines, "diagnostics", "core_num_gate", "1")
     new_text = newline.join(lines) + newline
     updated = bom + new_text.encode("utf-8")
     if updated != original:

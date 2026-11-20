@@ -20,6 +20,7 @@ def test_direct_launch_persists_online_without_overwriting_preferences(tmp_path)
     assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT + "\r\n").encode() in first
     assert b"SERVER_HOST=0\r\n" in first
     assert b"UPDATE_CHECK=0\r\n" in first
+    assert b"[diagnostics]\r\ncore_num_gate=1\r\n" in first
     assert b"access_token" not in first and b"password" not in first
     persist_online_settings(game)
     assert (game / "mkw.ini").read_bytes() == first
@@ -36,3 +37,27 @@ def test_direct_launch_defaults_to_strato_server(tmp_path):
     json_write(tmp_path / ".mkwom/settings.json", {"channel": "pre-beta"})
     persist_online_settings(tmp_path)
     assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT).encode() in (tmp_path / "mkw.ini").read_bytes()
+
+
+def test_direct_launch_preserves_diagnostics_and_updates_gate(tmp_path):
+    ini = tmp_path / "mkw.ini"
+    ini.write_text("[diagnostics]\n; existing setting\ncore_num_gate = 0\ntrace = 3\n[video]\nFPS=60\n")
+    persist_online_settings(tmp_path)
+    text = ini.read_text()
+    assert text.count("[diagnostics]") == 1
+    assert text.count("core_num_gate=") == 1
+    assert "core_num_gate=1\n" in text
+    assert "; existing setting\n" in text
+    assert "trace = 3\n" in text
+    assert "FPS=60\n" in text
+    prior = ini.read_bytes()
+    persist_online_settings(tmp_path)
+    assert ini.read_bytes() == prior
+
+
+def test_direct_launch_creates_game_local_diagnostics_only(tmp_path):
+    game = tmp_path / "game"
+    game.mkdir()
+    persist_online_settings(game)
+    assert "[diagnostics]\ncore_num_gate=1\n" in (game / "mkw.ini").read_text()
+    assert not (tmp_path / "mkw.ini").exists()

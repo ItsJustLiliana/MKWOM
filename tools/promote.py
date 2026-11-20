@@ -17,16 +17,24 @@ else:
     raise ValueError("destination must be beta or release")
 if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
-# Only promote what is currently approved on the preceding channel.
-# A built candidate that was never manually activated is not eligible.
-pointer = "channel-" + required_source
+# Pre-beta is a build queue, NOT a public client channel or running server.
+# A candidate is eligible for Beta only after the queue upload succeeded.
 Path("dist").mkdir(exist_ok=True)
-subprocess.run(["gh", "release", "download", pointer, "--dir", "dist",
-                "--pattern", "channel.json"], check=True)
-approved = json.loads(Path("dist/channel.json").read_text())
-if approved.get("format") != 1 or approved.get("channel") != required_source or approved.get("tag") != candidate:
-    raise ValueError(f"promote the active {required_source} candidate only; activate/test it first")
-(Path("dist") / "channel.json").unlink()
+if destination == "beta":
+    subprocess.run(["gh", "release", "download", candidate, "--dir", "dist",
+                    "--pattern", "queued-strato.json"], check=True)
+    receipt = json.loads(Path("dist/queued-strato.json").read_text())
+    if receipt != {"format": 1, "target": "strato", "candidate": candidate}:
+        raise ValueError("candidate is not verified in the STRATO pre-beta queue")
+    (Path("dist") / "queued-strato.json").unlink()
+else:
+    pointer = "channel-beta"
+    subprocess.run(["gh", "release", "download", pointer, "--dir", "dist",
+                    "--pattern", "channel.json"], check=True)
+    approved = json.loads(Path("dist/channel.json").read_text())
+    if approved.get("format") != 1 or approved.get("channel") != "beta" or approved.get("tag") != candidate:
+        raise ValueError("release must use the currently activated Beta candidate")
+    (Path("dist") / "channel.json").unlink()
 names = ["mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz", "mkwom.exe",
          "deploy_server.py", "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
 args = ["gh", "release", "download", candidate, "--dir", "dist"]
@@ -102,7 +110,7 @@ else:
              "Automated patch and server tests passed; two-PC multiplayer races require manual validation.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
         "--title", tag, "--notes", notes]
-args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
+args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--latest=true"]
 subprocess.run(args, check=True)
 with open(os.environ["GITHUB_OUTPUT"], "a") as f:
     f.write(f"tag={tag}\n")

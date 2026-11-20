@@ -44,6 +44,7 @@ class RollingTCPGateway:
         self.drain_seconds = drain_seconds
         self._listeners: list[asyncio.AbstractServer] = []
         self._lock = asyncio.Lock()
+        self._watchdog: asyncio.Task | None = None
 
     async def start(self, host: str, lobby_port: int, friends_port: int) -> None:
         """Bind both frontend TCP listeners, or none."""
@@ -59,6 +60,7 @@ class RollingTCPGateway:
             await first.wait_closed()
             raise
         self._listeners = [first, second]
+        self._watchdog = asyncio.create_task(self._watch_deadlines())
 
     async def _accept(self, client_reader: asyncio.StreamReader,
                       client_writer: asyncio.StreamWriter, kind: str) -> None:
@@ -97,6 +99,11 @@ class RollingTCPGateway:
             except (ConnectionError, OSError):
                 pass
 
+    async def _watch_deadlines(self) -> None:
+        while True:
+            await asyncio.sleep(0.25)
+            await self.retire_due()
+
     async def switch(self, target: Generation) -> Generation:
         """New TCP connections use target. Existing connections keep old backend."""
         async with self._lock:
@@ -104,6 +111,11 @@ class RollingTCPGateway:
                 raise ValueError("generation already exists")
             if target.lobby == self.current.lobby or target.friends == self.current.friends:
                 raise ValueError("new generation requires distinct TCP backend endpoints")
+            # Do not change live routing to a TCP endpoint that cannot be reached.
+            for endpoint in (target.lobby, target.friends):
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(*endpoint), timeout=3)
+                writer.close()
+                await writer.wait_closed()
             previous = self.current
             self.generations[target.name] = target
             self.current = target
@@ -129,6 +141,10 @@ class RollingTCPGateway:
         return retired
 
     async def close(self) -> None:
+        if self._watchdog is not None:
+            self._watchdog.cancel()
+            await asyncio.gather(self._watchdog, return_exceptions=True)
+            self._watchdog = None
         for listener in self._listeners:
             listener.close()
         await asyncio.gather(*(listener.wait_closed() for listener in self._listeners))

@@ -17041,7 +17041,7 @@ new file mode 100644
 index 0000000..277e38c
 --- /dev/null
 +++ b/runtime/srv/srv_referee.c
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,340 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (srv_referee.h).
 +#include "srv_referee.h"
@@ -17294,6 +17294,8 @@ index 0000000..277e38c
 +        rank[p] = x->ranked[k] ? (double)x->rank[k] : ++top;
 +    }
 +    referee_elo(rating, rank, x->nfinal, out);
++    for (int p = 0; p < x->nfinal; p++)
++        x->elo_delta[x->final[p]] = (int)lround(out[p] - rating[p]);
 +    SrvMap f = {0}, ratings = {0}, coefs = {0};
 +    for (int p = 0; p < x->nfinal; p++) {
 +        char key[24];
@@ -17385,7 +17387,7 @@ new file mode 100644
 index 0000000..a3fb79f
 --- /dev/null
 +++ b/runtime/srv/srv_referee.h
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,43 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (the protocol description, "Race referee"), entirely in a game session's Gamesync documents: a
 +// player's request document gets a result document (status 0) in the same batch, so every game sees within its 36 s
@@ -17410,6 +17412,8 @@ index 0000000..a3fb79f
 +    uint8_t ranked[RACE_PLAYERS], retired[RACE_PLAYERS];
 +    int order[RACE_PLAYERS], norder;   // the official order: k of each index, in the order reports first listed it
 +    int final[RACE_PLAYERS], nfinal;   // at close
++    int elo_delta[RACE_PLAYERS];  // final Elo change per race-player index
++    int score_queued;            // final result saved to per-generation outbox
 +    uint64_t first_report_ms;          // 0: no report yet
 +} SrvRace;
 +
@@ -17432,7 +17436,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1073 @@
+@@ -0,0 +1,1121 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17444,6 +17448,7 @@ index 0000000..fb8f922
 +#include <string.h>
 +#include <time.h>
 +
++#include "platform/platform.h"
 +#include "srv.h"
 +#include "srv_pb.h"
 +#include "srv_presence.h"
@@ -18452,7 +18457,51 @@ index 0000000..fb8f922
 +    nsessions--;
 +}
 +
-+void srv_session_tick(uint64_t now) {
++// The native server owns score computation. A separate authenticated delivery
++// worker writes this durable, idempotent event to the account API. Never copy
++// the mutable server data store to a new generation.
++static int queue_score_result(SrvSession *session, SrvRace *race) {
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (!channel || (strcmp(channel, "beta") && strcmp(channel, "release"))) return 0;
++    if (race->score_queued || race->open || !race->nfinal) return race->score_queued;
++    char path[1600], directory[1400], document[8192];
++    if (!*race->uuid || strspn(race->uuid, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
++                          != strlen(race->uuid)) return 0;
++    int n = snprintf(document, sizeof document, "{\"channel\":\"%s\",\"race_id\":\"%s\",\"players\":[",
++                     channel, race->uuid);
++    if (n < 0 || (size_t)n >= sizeof document) return 0;
++    for (int p = 0; p < race->nfinal; p++) {
++        int k = race->final[p];
++        SrvAccount *account = NULL;
++        for (int j = 0; j < session->nmembers; j++) {
++            if (session->members[j].ussid == race->ussid[k]) {
++                uint64_t code = srv_uid_code(session->members[j].uid);
++                account = code ? srv_account(code) : NULL;
++                break;
++            }
++        }
++        if (!account || strlen(account->account_id) != 32 ||
++            strspn(account->account_id, "0123456789abcdef") != 32) return 0;
++        int size = snprintf(document + n, sizeof document - (size_t)n,
++                            "%s{\"account_id\":\"%s\",\"position\":%d,\"points\":%d}",
++                            p ? "," : "", account->account_id, p + 1, race->elo_delta[k]);
++        if (size < 0 || (size_t)size >= sizeof document - (size_t)n) return 0;
++        n += size;
++    }
++    if ((size_t)n + 3 >= sizeof document) return 0;
++    document[n++] = ']';
++    document[n++] = '}';
++    document[n++] = '\n';
++    if (snprintf(directory, sizeof directory, "%s/score-outbox", srv_data_dir()) >= (int)sizeof directory ||
++        snprintf(path, sizeof path, "%s/%s.json", directory, race->uuid) >= (int)sizeof path) return 0;
++    plat_file_mkdir_p(directory);
++    if (!plat_file_write_atomic(path, document, (size_t)n)) return 0;
++    race->score_queued = 1;
++    srv_log("score event queued (channel=%s race=%s)", channel, race->uuid);
++    return 1;
++}
++
+++void srv_session_tick(uint64_t now) {
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
 +    last = now;
@@ -18484,6 +18533,9 @@ index 0000000..fb8f922
 +    for (int i = 0; i < nsessions; i++) {   // races whose players all wait: nobody writes to close them
 +        srv_gs_tick(sessions[i], now);
 +        referee_tick(&sessions[i]->referee, &sessions[i]->docs, now, (int64_t)time(NULL));
++        for (int r = 0; r < RACES_MAX; r++)
++            if (sessions[i]->referee.races[r].used && !sessions[i]->referee.races[r].open)
++                queue_score_result(sessions[i], &sessions[i]->referee.races[r]);
 +        if (sessions[i]->docs.nchanged) srv_gs_changed(sessions[i], 0);
 +    }
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {

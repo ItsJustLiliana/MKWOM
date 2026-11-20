@@ -147,6 +147,24 @@ class RollingUDPGateway:
             old.deadline = self.clock() + self.cutoff
             return old
 
+    async def rollback(self, target_name: str) -> UDPGeneration:
+        """Move only NEW UDP flows back to a prior non-expired generation.
+
+        Existing flows preserve their backend until expiry; this must be
+        coordinated with the TCP gateway at the deployment controller.
+        """
+        async with self._switch_lock:
+            target = self.generations.get(target_name)
+            if target is None or target is self.current:
+                raise ValueError("rollback target must be a prior live generation")
+            if target.deadline is not None and self.clock() >= target.deadline:
+                raise ValueError("rollback generation already expired")
+            previous = self.current
+            self.current = target
+            target.deadline = None
+            previous.deadline = self.clock() + self.cutoff
+            return previous
+
     async def retire_due(self):
         retired = []
         for name, generation in list(self.generations.items()):

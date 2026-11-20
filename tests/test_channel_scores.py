@@ -118,6 +118,10 @@ def test_game_modes_are_isolated_within_each_channel(client):
     battle = {**event, "race_id": "mode-isolated-0003", "game_mode": "battle"}
     assert client.post("/internal/race-result", json=battle, headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
     assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["rating"] == 3012
+    assert client.get("/scores?channel=release&game_mode=battle", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["rating"] == 3012
+    assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["rating"] == 3012
     assert client.get("/scores?channel=beta&game_mode=unknown", headers=h).status_code == 422
     assert client.post("/internal/race-result", json={**event, "game_mode": "race"},
                        headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 409

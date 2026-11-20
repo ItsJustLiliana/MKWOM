@@ -33,6 +33,19 @@ class GameTicketRequest(BaseModel):
     friend_code: str = Field(pattern=r"^[0-9]{12}$")
 
 
+class RacePlayer(BaseModel):
+    account_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    position: int = Field(ge=1, le=32)
+    points: int = Field(ge=-100000, le=100000)
+
+
+class RaceResult(BaseModel):
+    # Server-authoritative event; client-supplied scores must never be accepted.
+    channel: str = Field(pattern=r"^(beta|release)$")
+    race_id: str = Field(pattern=r"^[A-Za-z0-9_-]{12,128}$")
+    players: list[RacePlayer] = Field(min_length=1, max_length=32)
+
+
 class Credentials(BaseModel):
     username: str = Field(min_length=3, max_length=24)
     password: str = Field(min_length=12, max_length=256)
@@ -57,6 +70,23 @@ def connect():
     connection.execute("""CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
         expires_at INTEGER NOT NULL)""")
+    # Both generations of a channel write to ONE transactional store;
+    # Beta and Release remain isolated by the channel key on every row.
+    connection.execute("""CREATE TABLE IF NOT EXISTS race_results (
+        channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
+        race_id TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY(channel, race_id))""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS race_scores (
+        channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
+        race_id TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id),
+        position INTEGER NOT NULL,
+        points INTEGER NOT NULL,
+        PRIMARY KEY(channel, race_id, user_id),
+        FOREIGN KEY(channel, race_id) REFERENCES race_results(channel, race_id))""")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_race_scores_user_channel ON race_scores(user_id,channel)")
     return connection
 
 
@@ -173,3 +203,74 @@ def logout(token_hash: str = Depends(bearer)):
     with connect() as db:
         db.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
     return {"ok": True}
+
+
+def score_writer(x_mkwom_score_key: str | None = Header(default=None)):
+    """Shared secret used only by the native server/loopback relay, never a player."""
+    configured = os.environ.get("MKWOM_SCORE_INGEST_KEY", "")
+    if not re.fullmatch(r"[a-f0-9]{64}", configured):
+        raise HTTPException(503, "Score ingestion is not configured")
+    if not x_mkwom_score_key or not hmac.compare_digest(x_mkwom_score_key, configured):
+        raise HTTPException(403, "Score writer authentication failed")
+
+
+@app.post("/internal/race-result", dependencies=[Depends(score_writer)])
+def record_race(body: RaceResult):
+    """Atomic, retry-safe write, keyed by channel/race ID.
+
+    Changing a race's contents on retry is rejected. Scores for distinct channels
+    never share rows. Do not call until referee outcome is final and verified.
+    """
+    if len({player.account_id for player in body.players}) != len(body.players):
+        raise HTTPException(422, "Duplicate player in race")
+    if len({player.position for player in body.players}) != len(body.players):
+        raise HTTPException(422, "Duplicate finishing position")
+    canonical = sorted((p.account_id, p.position, p.points) for p in body.players)
+    encoded = repr(canonical).encode("ascii")
+    digest = hashlib.sha256(encoded).hexdigest()
+    with connect() as db:
+        # Acquire write lock before existence check to serialize competing servers.
+        db.execute("BEGIN IMMEDIATE")
+        prior = db.execute(
+            "SELECT payload_hash FROM race_results WHERE channel=? AND race_id=?",
+            (body.channel, body.race_id)).fetchone()
+        if prior:
+            if not hmac.compare_digest(prior[0], digest):
+                raise HTTPException(409, "Conflicting replay of existing race")
+            return {"accepted": True, "duplicate": True}
+        accounts = {row[0] for row in db.execute(
+            "SELECT id FROM users WHERE id IN (" + ",".join("?" for _ in canonical) + ")",
+            [p[0] for p in canonical])}
+        if len(accounts) != len(canonical):
+            raise HTTPException(422, "Unknown account in race result")
+        db.execute("INSERT INTO race_results(channel,race_id,payload_hash,created_at) VALUES (?,?,?,?)",
+                   (body.channel, body.race_id, digest, int(time.time())))
+        db.executemany(
+            "INSERT INTO race_scores(channel,race_id,user_id,position,points) VALUES (?,?,?,?,?)",
+            [(body.channel, body.race_id, uid, pos, pts) for uid, pos, pts in canonical])
+    return {"accepted": True, "duplicate": False}
+
+
+@app.get("/scores")
+def account_scores(channel: str, token_hash: str = Depends(bearer)):
+    """Read the calling account's history for exactly one approved channel."""
+    if channel not in ("beta", "release"):
+        raise HTTPException(422, "Channel must be beta or release")
+    with connect() as db:
+        found = db.execute(
+            "SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?",
+            (token_hash, int(time.time()))).fetchone()
+        if not found:
+            raise HTTPException(401, "Session expired or revoked")
+        user_id = found[0]
+        score = db.execute(
+            "SELECT COALESCE(SUM(points),0),COUNT(*) FROM race_scores WHERE user_id=? AND channel=?",
+            (user_id, channel)).fetchone()
+        history = db.execute(
+            """SELECT race_id,position,points FROM race_scores
+               WHERE user_id=? AND channel=? ORDER BY rowid DESC LIMIT 50""",
+            (user_id, channel)).fetchall()
+    return {"channel": channel, "account_id": user_id, "total_points": score[0],
+            "races": score[1], "history": [
+                {"race_id": race, "position": position, "points": points}
+                for race, position, points in history]}

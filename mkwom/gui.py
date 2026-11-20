@@ -6,7 +6,7 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .cli import CHANNELS, endpoint, launch, update, update_status
+from .cli import CHANNELS, COMMUNITY_ENDPOINT, launch, update, update_status
 from .accounts_client import AuthError, api_base, authenticate, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
@@ -66,7 +66,7 @@ class Launcher:
         self.busy = False
         self.folder = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="pre-beta")
-        self.endpoint = tk.StringVar()
+        self.endpoint = tk.StringVar(value=COMMUNITY_ENDPOINT)
         self.status = tk.StringVar(value="Choose your game folder to get started.")
         self.details = tk.StringVar(value="")
         self.bar = None
@@ -137,11 +137,11 @@ class Launcher:
         self.channels = ttk.Combobox(line, values=CHANNELS, state="readonly",
                                      textvariable=self.channel, width=13)
         self.channels.grid(row=0, column=1, padx=(12, 0), sticky="w")
-        ttk.Label(line, text="Custom server (blank = community)").grid(row=1, column=0, sticky="w", pady=(12, 0))
-        self.server = ttk.Entry(line, textvariable=self.endpoint, width=35)
+        ttk.Label(line, text="Official STRATO multiplayer server").grid(row=1, column=0, sticky="w", pady=(12, 0))
+        self.server = ttk.Entry(line, textvariable=self.endpoint, width=35, state="disabled")
         self.server.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(12, 0))
         line.columnconfigure(1, weight=1)
-        self.save = ttk.Button(line, text="Save server", command=self.save_server)
+        self.save = ttk.Button(line, text="Official server", state="disabled")
         self.save.grid(row=1, column=2, padx=(8, 0), pady=(12, 0))
         account_box = ttk.LabelFrame(outer, text="MKWOM Online Account")
         account_box.pack(fill="x", pady=(10, 0))
@@ -197,7 +197,7 @@ class Launcher:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
             self.channel.set(settings.get("channel", "pre-beta"))
-            self.endpoint.set(settings.get("endpoint", "") if settings.get("endpoint_mode") != "channel" else "")
+            self.endpoint.set(COMMUNITY_ENDPOINT)
             self.update_auth_buttons()
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
@@ -216,12 +216,8 @@ class Launcher:
     def persist(self, folder: Path):
         settings = read_json(folder / ".mkwom" / "settings.json", {})
         settings["channel"] = self.channel.get()
-        if self.endpoint.get().strip():
-            settings["endpoint"] = endpoint(self.endpoint.get().strip())
-            settings["endpoint_mode"] = "custom"
-        else:
-            settings["endpoint_mode"] = "channel"
-            settings.pop("endpoint", None)
+        settings["endpoint"] = COMMUNITY_ENDPOINT
+        settings["endpoint_mode"] = "channel"
         json_write(folder / ".mkwom" / "settings.json", settings)
 
     def save_server(self):
@@ -356,7 +352,7 @@ class Launcher:
                 self.bar.stop()
                 self.primary.configure(state="normal")
                 self.browse.configure(state="normal")
-                self.save.configure(state="normal")
+                self.save.configure(state="disabled")
                 self.channels.configure(state="readonly")
                 self.check_button.configure(state="normal")
                 self.update_button.configure(state="normal")

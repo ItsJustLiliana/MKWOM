@@ -20,6 +20,10 @@ class RollingCutoverController:
         self.tcp = tcp
         self.udp = udp
         self._lock = asyncio.Lock()
+        self._gate = asyncio.Event()
+        self._gate.set()
+        tcp._cutover_gate = self._gate
+        udp._cutover_gate = self._gate
         if tcp.current.name != udp.current.name:
             raise ValueError("TCP and UDP initial generations do not match")
 
@@ -31,17 +35,21 @@ class RollingCutoverController:
                 raise CutoverError("transport generations are already inconsistent")
             old_name = self.tcp.current.name
             # TCP switch tests both native TLS ports before changing the front door.
-            await self.tcp.switch(tcp_target)
+            self._gate.clear()
             try:
+                await self.tcp.switch(tcp_target)
                 await self.udp.switch(udp_target)
             except BaseException as err:
                 try:
-                    await self.tcp.rollback(old_name)
+                    if self.tcp.current.name != old_name:
+                        await self.tcp.rollback(old_name)
                 except BaseException as rollback_error:
                     raise CutoverError(
                         "UDP switch failed and TCP rollback also failed; stop routing new players"
                     ) from rollback_error
-                raise CutoverError("UDP switch failed; TCP routing was rolled back") from err
+                raise CutoverError("Cutover failed; TCP routing was rolled back") from err
+            finally:
+                self._gate.set()
             return old_name
 
     async def rollback(self, target_name: str):
@@ -51,15 +59,19 @@ class RollingCutoverController:
             old = self.tcp.current.name
             if target_name == old:
                 raise ValueError("target must be a prior generation")
-            await self.tcp.rollback(target_name)
+            self._gate.clear()
             try:
+                await self.tcp.rollback(target_name)
                 await self.udp.rollback(target_name)
             except BaseException as err:
                 try:
-                    await self.tcp.rollback(old)
+                    if self.tcp.current.name != old:
+                        await self.tcp.rollback(old)
                 except BaseException as rollback_error:
                     raise CutoverError(
                         "transport rollback failed and compensating action failed"
                     ) from rollback_error
-                raise CutoverError("UDP rollback failed; restored original TCP routing") from err
+                raise CutoverError("Transport rollback failed; restored original TCP routing") from err
+            finally:
+                self._gate.set()
             return old

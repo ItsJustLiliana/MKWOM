@@ -101,7 +101,7 @@ def test_cutover_state_write_failure_reverts_and_undrains_old(tmp_path, monkeypa
         async def healthy(_):
             return None
         monkeypatch.setattr(service, "_health", healthy)
-        def fails():
+        def fails(*, pending=None):
             raise OSError("storage unavailable")
         monkeypatch.setattr(service, "_write_state", fails)
         with pytest.raises(OSError, match="storage unavailable"):

@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
     inputs:
       candidate:
-        description: Queued pre-beta tag for Beta, or active beta tag for Release
-        required: true
+        description: Optional; blank picks latest queued Beta candidate or current active Beta
+        required: false
       destination:
         type: choice
         options: [beta, release]

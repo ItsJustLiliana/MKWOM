@@ -44,7 +44,7 @@ class RaceResult(BaseModel):
     # Server-authoritative event; client-supplied scores must never be accepted.
     channel: str = Field(pattern=r"^(beta|release)$")
     race_id: str = Field(pattern=r"^[A-Za-z0-9_-]{12,128}$")
-    game_mode: str = Field(pattern=r"^(versus|knockout)$")
+    game_mode: str = Field(pattern=r"^(race|knockout|battle)$")
     players: list[RacePlayer] = Field(min_length=1, max_length=32)
 
 
@@ -77,14 +77,14 @@ def connect():
     connection.execute("""CREATE TABLE IF NOT EXISTS race_results (
         channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
         race_id TEXT NOT NULL,
-        game_mode TEXT NOT NULL CHECK(game_mode IN ('versus','knockout')),
+        game_mode TEXT NOT NULL CHECK(game_mode IN ('race','knockout','battle')),
         payload_hash TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         PRIMARY KEY(channel, race_id))""")
     connection.execute("""CREATE TABLE IF NOT EXISTS race_scores (
         channel TEXT NOT NULL CHECK(channel IN ('beta','release')),
         race_id TEXT NOT NULL,
-        game_mode TEXT NOT NULL CHECK(game_mode IN ('versus','knockout')),
+        game_mode TEXT NOT NULL CHECK(game_mode IN ('race','knockout','battle')),
         user_id TEXT NOT NULL REFERENCES users(id),
         position INTEGER NOT NULL,
         points INTEGER NOT NULL,
@@ -277,8 +277,8 @@ def account_scores(channel: str, game_mode: str | None = None, token_hash: str =
     """Read the calling account's history for exactly one approved channel."""
     if channel not in ("beta", "release"):
         raise HTTPException(422, "Channel must be beta or release")
-    if game_mode is not None and game_mode not in ("versus", "knockout"):
-        raise HTTPException(422, "Unknown game mode")
+    if game_mode is not None and game_mode not in ("race", "knockout", "battle"):
+        raise HTTPException(422, "Game mode must be race, knockout or battle")
     with connect() as db:
         found = db.execute(
             "SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?",

@@ -16,7 +16,6 @@ import ssl
 import subprocess
 import time
 
-from tools.deploy_server import health
 from tools.rolling_cutover import RollingCutoverController
 from tools.rolling_tcp_gateway import Generation, RollingTCPGateway
 from tools.rolling_udp_gateway import UDPGeneration, RollingUDPGateway
@@ -104,6 +103,8 @@ class RollingGatewayService:
         return self.settings[name]
 
     async def _health(self, name):
+        # The deployer uses POSIX fcntl; import only on the Linux daemon path.
+        from tools.deploy_server import health
         g = self._generation(name)
         last = None
         for attempt in range(15):

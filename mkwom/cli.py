@@ -108,6 +108,9 @@ def update(game: Path, channel: str, *, force: bool = False):
     settings["endpoint"] = COMMUNITY_ENDPOINT
     settings["endpoint_mode"] = "channel"
     json_write(game / ".mkwom/settings.json", settings)
+    # Also configure direct game launches and the scheduler gate on CLI updates.
+    from .direct_launch import persist_online_settings
+    persist_online_settings(game)
 
 
 def launch(game: Path):
@@ -157,6 +160,8 @@ def main(argv=None):
         settings = read_json(game / ".mkwom/settings.json", {})
         if a.command == "install":
             install(game, a.package)
+            from .direct_launch import persist_online_settings
+            persist_online_settings(game)
             print("Patch installed. Start through MKWOM; Set up again if the launcher requests it.")
         elif a.command == "uninstall":
             uninstall(game)

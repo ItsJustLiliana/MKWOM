@@ -76,7 +76,7 @@ Before Beta promotion you must manually activate the exact pre-beta candidate th
    update. Open **Releases**, edit its notes to record the actual game tests, then click **Publish release** when ready.
 5. **Manually run Actions > Activate published Release** with the published stable tag. This deploys the Release server, then points its client updater at that artifact. A draft/prerelease is rejected by stable activation. Publishing alone never deploys.
 
-Stable releases include versioned `MKWOM-Patch-vX.Y.Z-windows-x64.zip` and `MKWOM-Patcher-vX.Y.Z.exe` files as byte-identical copies of the tested artifacts. Generic names remain for the automatic updater. The public release version is distinct from the commit-pinned internal build ID.
+Stable releases include versioned `MKWOM-Patch-vX.Y.Z-windows-x64.zip` and `MKWOM-vX.Y.Z.exe` files as byte-identical copies of the tested artifacts. Generic names remain for the automatic updater. The public release version is distinct from the commit-pinned internal build ID.
 
 The client patch has a content build ID; promoting it changes its channel/Release tag, not its bytes. You can
 download the patch directly from the ordinary GitHub Releases page; no separate website or GitHub Pages is needed.

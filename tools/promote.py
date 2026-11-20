@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import tempfile
 
+from versioning import LEGACY_BETA, parsed_beta, parsed_stable, next_beta, next_stable, stable_for_beta
+
 candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
 if destination == "beta":
@@ -37,7 +39,8 @@ if not candidate and destination == "release":
         subprocess.run(["gh", "release", "download", "channel-beta", "--dir", directory,
                         "--pattern", "channel.json"], check=True)
         candidate = json.loads((Path(directory) / "channel.json").read_text())["tag"]
-if not re.fullmatch(rf"{required_source}-[0-9]+-[a-f0-9]{{12}}", candidate):
+if not ((destination == "beta" and re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}", candidate)) or
+        (destination == "release" and (parsed_beta(candidate) is not None or LEGACY_BETA.fullmatch(candidate)))):
     raise ValueError(f"{destination} must be promoted from a tested {required_source} candidate; skipping stages is not allowed")
 # Pre-beta is a build queue, NOT a public client channel or running server.
 # A candidate is eligible for Beta only after the queue upload succeeded.
@@ -57,46 +60,67 @@ else:
     if approved.get("format") != 1 or approved.get("channel") != "beta" or approved.get("tag") != candidate:
         raise ValueError("release must use the currently activated Beta candidate")
     (Path("dist") / "channel.json").unlink()
-names = ["mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz", "mkwom.exe",
-         "deploy_server.py", "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
+# The pre-beta queue keeps its build-time mkwom.exe name. Promoted Beta
+# releases expose a single user-facing versioned executable instead.
+patch = "mkwom-patch-windows-x64.zip"
+raw_exe = "mkwom.exe"
+beta_exe = f"MKWOM-{candidate}.exe" if destination == "release" else raw_exe
+base_assets = [patch, "mkwom-server-linux-x64.tar.gz", "deploy_server.py",
+               "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
+names = [*base_assets, beta_exe]
 args = ["gh", "release", "download", candidate, "--dir", "dist"]
 for name in names:
     args.extend(["--pattern", name])
 subprocess.run(args, check=True)
 checks = dict(line.split("  ", 1)[::-1] for line in Path("dist/SHA256SUMS").read_text().splitlines())
-for name in names[:-1]:
-    if hashlib.sha256((Path("dist") / name).read_bytes()).hexdigest() != checks[name]:
+for name in names:
+    if name == "SHA256SUMS":
+        continue
+    checksum_key = raw_exe if name == beta_exe else name
+    if hashlib.sha256((Path("dist") / name).read_bytes()).hexdigest() != checks[checksum_key]:
         raise ValueError("candidate checksum mismatch")
 info = json.loads(Path("dist/build-info.json").read_text())
 if not re.fullmatch(r"[a-f0-9]{40}", info["source_sha"]):
     raise ValueError("invalid candidate commit")
-tag = (f"beta-{os.environ['GITHUB_RUN_ID']}-{info['source_sha'][:12]}" if destination == "beta"
-       else os.environ.get("RELEASE_VERSION", "").strip())
-if destination == "release" and not tag:
-    existing = json.loads(subprocess.check_output(
-        ["gh", "release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft"], text=True))
-    versions = [(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-                for item in existing if not item.get("isPrerelease") and not item.get("isDraft")
-                if (m := re.fullmatch(r"v([0-9]+)\\.([0-9]+)\\.([0-9]+)", item.get("tagName", "")))]
-    major, minor, patch = max(versions, default=(0, 1, 0))
-    tag = f"v{major}.{minor}.{patch + 1}"
-if destination not in ("beta", "release") or (destination == "release" and
-        not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
-    raise ValueError("Release version must look like v0.1.0")
-# Candidate/Beta releases retain complete verified provenance and deployment assets.
-# Public stable releases contain only user-facing Windows downloads. Release
-# channel verification is sourced from the already approved immutable Beta tag.
-release_assets = [Path("dist") / n for n in names] if destination == "beta" else []
-if destination == "release":
+# A single serialized promotion workflow allocates a new Beta prerelease number.
+# Read all release tags, including drafts, so a failed promotion does not reuse a tag.
+existing = json.loads(subprocess.check_output(
+    ["gh", "release", "list", "--limit", "1000", "--json", "tagName,isPrerelease,isDraft"], text=True))
+requested = os.environ.get("RELEASE_VERSION", "").strip()
+if destination == "beta":
+    tag = next_beta(existing)
+else:
+    expected = stable_for_beta(candidate)
+    if expected:
+        if requested and requested != expected:
+            raise ValueError(f"Approved Beta {candidate} must become {expected}; cannot rename its release train")
+        tag = expected
+    else:
+        # Existing legacy beta-<run>-<sha> tags remain promotable.
+        tag = requested or next_stable(existing)
+    if not parsed_stable(tag):
+        raise ValueError("Release version must look like v0.1.2")
+# Internal deployment assets remain in Beta, but its sole EXE download has
+# the same versioned naming convention as the stable public Release.
+release_assets = [Path("dist") / n for n in names if n != raw_exe] if destination == "beta" else []
+if destination == "beta":
+    versioned = Path("dist") / f"MKWOM-{tag}.exe"
+    shutil.copyfile(Path("dist") / raw_exe, versioned)
+    if hashlib.sha256(versioned.read_bytes()).hexdigest() != checks[raw_exe]:
+        raise ValueError("versioned Beta executable checksum mismatch")
+    release_assets.append(versioned)
+else:
+    # Release downloads the exact Beta EXE and republishes its bytes unchanged.
     for source, filename in (
-        ("mkwom-patch-windows-x64.zip", f"MKWOM-Patch-{tag}-windows-x64.zip"),
-        ("mkwom.exe", f"MKWOM-Patcher-{tag}.exe"),
+        (patch, f"MKWOM-Patch-{tag}-windows-x64.zip"),
+        (beta_exe, f"MKWOM-{tag}.exe"),
     ):
         target = Path("dist") / filename
         if target.exists():
             raise ValueError(f"duplicate release asset: {filename}")
         shutil.copyfile(Path("dist") / source, target)
-        if hashlib.sha256(target.read_bytes()).hexdigest() != checks[source]:
+        key = raw_exe if source == beta_exe else source
+        if hashlib.sha256(target.read_bytes()).hexdigest() != checks[key]:
             raise ValueError("versioned release asset checksum mismatch")
         release_assets.append(target)
 if destination == "release":
@@ -109,7 +133,7 @@ if destination == "release":
 ## Download and install
 
 1. Install the official mkw-recomp v0.1.15 Windows x64 runtime.
-2. Download **`MKWOM-Patcher-{tag}.exe`** below, and close the game.
+2. Download **`MKWOM-{tag}.exe`** below, and close the game.
 3. Double-click the patcher. It will look for the official installation; if needed, click **Browse** and choose the folder containing `mkw.exe`.
 4. Follow the installer steps. The patch downloads automatically, is verified and installed; the installer then closes.
 5. Next time, launch the patched `mkw.exe` from the game folder; MKWOM checks for updates and uses the saved login.
@@ -138,16 +162,16 @@ The patcher checks hashes and preserves backups, saves and config for uninstall.
 - This is an unofficial, AI-assisted project, not affiliated with Nintendo or the upstream developers.
 """
 else:
-    notes = (f"Beta candidate promoted unchanged from {candidate}. "
-             "Automated patch and server tests passed; two-PC multiplayer races require manual validation.")
+    notes = (f"## Beta {tag}\n\n"
+             f"Promoted from verified pre-beta candidate `{candidate}` without rebuilding.\n\n"
+             "Automated patch and server tests passed; two-PC multiplayer races require manual validation. "
+             "Internal server, checksum and provenance assets are for staged deployment and verification.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
         "--title", tag, "--notes", notes]
 args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
 if destination == "release":
-    # Rerun safely after a deployment failure, without duplicating v0.1.1.
-    listed = json.loads(subprocess.check_output(
-        ["gh", "release", "list", "--limit", "1000", "--json", "tagName"], text=True))
-    matching = [r for r in listed if r["tagName"] == tag]
+    # Rerun safely after a deployment failure, without duplicating the stable tag.
+    matching = [r for r in existing if r["tagName"] == tag]
     if matching:
         found = json.loads(subprocess.check_output(
             ["gh", "release", "view", tag, "--json", "isDraft,isPrerelease,targetCommitish,body,assets"],

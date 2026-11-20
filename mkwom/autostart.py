@@ -10,10 +10,11 @@ from pathlib import Path
 import shutil
 import sys
 
-from .accounts_client import AuthError, current_user
+from .accounts_client import AuthError, current_user, token
 from .cli import launch, update
 from .installer import read_json
 from .direct_launch import persist_online_settings
+from .session_storage import protect_for_game
 
 
 def install_helper(game: Path) -> None:
@@ -48,6 +49,14 @@ def update_and_launch(game: Path) -> None:
     # The transactional updater preserves saves, verifies the patch's hash and
     # refuses unsupported versions; this process does not hold mkw.exe open.
     update(game, channel)
+    # Re-create the native game's DPAPI session after every authenticated
+    # launch. A Windows Credential Manager token may have been replaced by a
+    # later sign-in, while the file saved during setup still has the old token.
+    # The server independently verifies the fresh game ticket.
+    access = token()
+    if not access:
+        raise AuthError("No saved account session. Reopen MKWOM Setup and sign in.")
+    protect_for_game(game, access, channel)
     persist_online_settings(game)
     launch(game)
 

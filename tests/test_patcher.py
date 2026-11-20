@@ -188,6 +188,7 @@ def test_updater_uses_selected_channel_and_hash(folders, monkeypatch):
     assert seen[0].endswith("channel-beta")
     assert installer.read_json(game / ".mkwom/settings.json")["channel"] == "beta"
     assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == cli.COMMUNITY_ENDPOINT
+    assert "core_num_gate=1" in (game / "mkw.ini").read_text()
 
 
 def test_launcher_sets_managed_environment_without_editing_ini(folders, monkeypatch):

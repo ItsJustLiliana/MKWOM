@@ -185,3 +185,24 @@ def test_native_old_generation_is_stopped_only_after_both_gateways_retire(tmp_pa
             service.stop_event.set()
             await asyncio.wait_for(retired, timeout=2)
     asyncio.run(scenario())
+
+
+def test_scored_channels_require_both_generation_delivery_workers(tmp_path, monkeypatch):
+    conf = config(tmp_path)
+    conf["score_channel"] = "beta"
+    with pytest.raises(ValueError, match="mandatory"):
+        RollingGatewayService(conf)
+    for name in conf["generations"]:
+        conf["generations"][name]["score_unit"] = f"mkw-score-{name}.service"
+    service = RollingGatewayService(conf)
+    calls = []
+    def active(args, **_kwargs):
+        calls.append(args)
+    monkeypatch.setattr("tools.rolling_gateway_daemon.subprocess.run", active)
+    async def scenario():
+        await service._score_ready("old")
+        await service._score_ready("new")
+    asyncio.run(scenario())
+    assert calls == [
+        ["systemctl", "--user", "is-active", "--quiet", "mkw-score-old.service"],
+        ["systemctl", "--user", "is-active", "--quiet", "mkw-score-new.service"]]

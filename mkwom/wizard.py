@@ -309,40 +309,89 @@ class SetupWizard:
             raise AuthError("Log in or create an account to continue")
         self._signed_in(profile)
 
+    def _channel_and_account(self):
+        fetch_channel(self.channel.get())
+        try:
+            return current_user(self.channel.get())
+        except AuthError:
+            # Invalid/expired session: ask for credentials, never trust just a local token.
+            return None
+
+    def _account_ready(self, profile):
+        if profile and profile.get("id"):
+            self.username.set(str(profile.get("username", "")))
+            self.step = 4
+            self.notice.set("Existing login verified. No need to sign in again.")
+        else:
+            self.step = 3
+            self.notice.set("Please sign in to your MKWOM account.")
+        self.show_step()
+
+    def _start_uninstall(self):
+        if not messagebox.askyesno(
+            "Uninstall MKWOM",
+            "Restore the original recomp files? Your game saves and Windows account will be kept.",
+        ):
+            return
+        self.completed_action = "uninstall"
+        self.step = 5
+        self.progress.set(0)
+        self.progress_label.set("Restoring original game files...")
+        self.show_step()
+        self.start(
+            lambda: uninstall_mkwom(
+                Path(self.game.get()), lambda p, label: self.events.put(("progress", p, label))
+            ),
+            lambda _: self._installed(),
+        )
+
     def advance(self):
         if self.busy:
             return
         if self.step == 0:
-            if not valid_game_folder(Path(self.game.get())):
+            game = Path(self.game.get())
+            if not valid_game_folder(game):
                 messagebox.showerror("Game folder", "Choose the directory containing mkw.exe.")
                 return
-            save_folder(Path(self.game.get()))
-            self.step = 1
+            save_folder(game)
+            self.installation = installed_patch(game)
+            if self.installation:
+                settings = read_json(game / ".mkwom" / "settings.json", {})
+                previous = settings.get("channel")
+                if previous in ("beta", "release"):
+                    self.channel.set(previous)
+            self.step = 1 if self.installation else 2
             self.show_step()
         elif self.step == 1:
-            self.start(lambda: fetch_channel(self.channel.get()), lambda _: self._channel_ready())
+            if self.action.get() == "uninstall":
+                self._start_uninstall()
+            else:
+                self.step = 2
+                self.show_step()
         elif self.step == 2:
+            self.start(self._channel_and_account, self._account_ready)
+        elif self.step == 3:
             if self.username.get().strip() and self.password.get():
                 self.sign_in(False)
             else:
                 self.start(lambda: current_user(self.channel.get()), self._verified_saved)
-        elif self.step == 3:
-            self.step = 4
+        elif self.step == 4:
+            self.completed_action = "install"
+            self.step = 5
             self.progress.set(0)
             self.progress_label.set("Starting installation...")
             self.show_step()
-            self.start(lambda: install_and_configure(Path(self.game.get()), self.channel.get(),
-                       lambda value, label: self.events.put(("progress", value, label))),
-                       lambda _: self._installed())
-
-    def _channel_ready(self):
-        self.step = 2
-        self.notice.set("Channel confirmed. Sign in to continue.")
-        self.show_step()
+            self.start(
+                lambda: install_and_configure(
+                    Path(self.game.get()), self.channel.get(),
+                    lambda p, label: self.events.put(("progress", p, label)),
+                ),
+                lambda _: self._installed(),
+            )
 
     def _installed(self):
         self.complete = True
-        self.notice.set("MKWOM installation finished successfully.")
+        self.notice.set("MKWOM removal finished." if self.completed_action == "uninstall" else "MKWOM installation finished successfully.")
         self.show_step()
 
     def poll(self):

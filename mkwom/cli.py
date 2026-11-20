@@ -124,14 +124,7 @@ def launch(game: Path):
         raise ValueError("install the MKWOM patch first")
     verify(game, installed)
     settings = read_json(game / ".mkwom/settings.json", {})
-    ini = ini_values(game / "mkw.ini")
-    data = Path(ini.get("GAME_DIR") or str(game))
-    if not data.is_absolute():
-        data = game / data
-    active = ini_values(data / "mkw.ini")
     address = COMMUNITY_ENDPOINT
-    if not address:
-        raise ValueError("no community endpoint configured; operator must configure this channel first")
     env = dict(os.environ, MKW_ONLINE="1", MKW_ONLINE_SERVER=endpoint(address), MKW_SERVER_HOST="0",
                MKWOM_MANAGED="1", MKW_UPDATE_CHECK="0")
     # The wrapper owns patch updates; the upstream in-game updater would replace the patched runtime.

@@ -76,10 +76,9 @@ in memory cannot be recovered from this new score ledger.
 ## Gamemode score isolation and anti-cheat limitations (PR #20)
 
 The score ledger now requires a native-referee-issued `game_mode` of
-`versus` or `knockout`. Within each account, scores are separated by
-**channel and mode**; users can request `/scores?channel=beta&game_mode=versus`
-(or Knockout/Release combinations). Native outbox events derive Knockout
-from the referee's numbered tour section, not from the launcher. The delivery
+`race`, `knockout` or `battle`. Within each account, scores are separated by
+**channel and mode**; users can request `/scores?channel=beta&game_mode=race`
+(or Knockout/Release combinations). Native outbox events derive Knockout from the referee's numbered tour section, and require authoritative classification of Battle instead of folding it into Race. The delivery
 worker rejects missing and unexpected modes. Existing channel-only records
 remain in a `legacy` namespace after SQLite migration and are never silently
 claimed as Versus or Knockout.

@@ -112,3 +112,43 @@ def test_gateway_rejects_duplicate_and_same_endpoint_generations():
             await gateway.switch(
                 Generation("new", ("127.0.0.1", 10), ("127.0.0.1", 14)))
     run(test())
+
+
+def test_rollback_reuses_healthy_old_backend_without_killing_existing_streams():
+    async def scenario():
+        old, op = await endpoint(b"O")
+        new, np = await endpoint(b"N")
+        clock = [50.0]
+        gateway = RollingTCPGateway(Generation("old", ("127.0.0.1", op),
+                                               ("127.0.0.1", op)), clock=lambda: clock[0])
+        try:
+            await gateway.start("127.0.0.1", 0, 0)
+            port = gateway._listeners[0].sockets[0].getsockname()[1]
+            old_reader, old_writer = await asyncio.open_connection("127.0.0.1", port)
+            assert await old_reader.readexactly(1) == b"O"
+            await gateway.switch(Generation("new", ("127.0.0.1", np),
+                                            ("127.0.0.1", np)))
+            new_reader, new_writer = await asyncio.open_connection("127.0.0.1", port)
+            assert await new_reader.readexactly(1) == b"N"
+            await gateway.rollback("old")
+            fresh_reader, fresh_writer = await asyncio.open_connection("127.0.0.1", port)
+            assert await fresh_reader.readexactly(1) == b"O"
+            for writer, reader, marker in ((old_writer, old_reader, b"O"),
+                                           (new_writer, new_reader, b"N")):
+                writer.write(b"ok")
+                await writer.drain()
+                assert await reader.readexactly(2) == b"ok"
+            assert gateway.current.name == "old"
+            assert gateway.generations["old"].deadline is None
+            with pytest.raises(ValueError):
+                await gateway.rollback("old")
+            for writer in (old_writer, new_writer, fresh_writer):
+                writer.close()
+                await writer.wait_closed()
+        finally:
+            await gateway.close()
+            old.close()
+            new.close()
+            await old.wait_closed()
+            await new.wait_closed()
+    run(scenario())

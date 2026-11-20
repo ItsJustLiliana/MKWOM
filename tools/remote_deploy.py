@@ -41,6 +41,8 @@ try:
     args = ["python3", remote + "/deploy_server.py", remote + "/mkwom-server-linux-x64.tar.gz",
             "--sha256", digest, "--root", os.environ["DEPLOY_ROOT"], "--unit", os.environ["DEPLOY_UNIT"],
             "--host", os.environ["LISTEN_HOST"], "--port", os.environ["LOBBY_PORT"]]
+    if os.environ.get("RESTART_IF_UNCHANGED") == "true":
+        args.append("--restart-if-unchanged")
     subprocess.run(ssh + [shlex.join(args)], check=True)
 finally:
     subprocess.run(ssh + ["rm -rf -- " + shlex.quote(remote)], check=False)

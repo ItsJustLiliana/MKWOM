@@ -20,8 +20,8 @@ from tools.rolling_cutover import RollingCutoverController
 from tools.rolling_tcp_gateway import Generation, RollingTCPGateway
 from tools.rolling_udp_gateway import UDPGeneration, RollingUDPGateway
 
-UNIT = re.compile(r"mkw-[a-z0-9_.-]+\\.service\\Z")
-NAME = re.compile(r"[a-z0-9-]{1,48}\\Z")
+UNIT = re.compile(r"mkw-[a-z0-9_.-]+\.service\Z")
+NAME = re.compile(r"[a-z0-9-]{1,48}\Z")
 
 
 def _port(value):
@@ -162,6 +162,8 @@ class RollingGatewayService:
             self._write_state()
             (self._generation(target)["data"] / "drain").unlink(missing_ok=True)
         except BaseException:
+            if self.tcp.current.name == target and self.udp.current.name == target:
+                await self.controller.rollback(old)
             marker.unlink(missing_ok=True)
             raise
         return {"active": target, "draining": old, "cutoff_seconds": 3600}
@@ -207,8 +209,12 @@ class RollingGatewayService:
                     name not in self.tcp.generations and name not in self.udp.generations and
                     name not in self.stopped_units):
                     if g["unit"]:
-                        await asyncio.to_thread(subprocess.run,
-                            ["systemctl", "--user", "stop", g["unit"]], check=True, timeout=15)
+                        try:
+                            await asyncio.to_thread(subprocess.run,
+                                ["systemctl", "--user", "stop", g["unit"]], check=True, timeout=15)
+                        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                            print(f"Failed to stop retired generation {name}: {exc}", flush=True)
+                            continue
                     self.stopped_units.add(name)
             await asyncio.sleep(0.25)
 

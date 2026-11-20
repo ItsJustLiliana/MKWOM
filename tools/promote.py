@@ -71,7 +71,15 @@ info = json.loads(Path("dist/build-info.json").read_text())
 if not re.fullmatch(r"[a-f0-9]{40}", info["source_sha"]):
     raise ValueError("invalid candidate commit")
 tag = (f"beta-{os.environ['GITHUB_RUN_ID']}-{info['source_sha'][:12]}" if destination == "beta"
-       else os.environ["RELEASE_VERSION"])
+       else os.environ.get("RELEASE_VERSION", "").strip())
+if destination == "release" and not tag:
+    existing = json.loads(subprocess.check_output(
+        ["gh", "release", "list", "--limit", "100", "--json", "tagName,isPrerelease,isDraft"], text=True))
+    versions = [(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                for item in existing if not item.get("isPrerelease") and not item.get("isDraft")
+                if (m := re.fullmatch(r"v([0-9]+)\\.([0-9]+)\\.([0-9]+)", item.get("tagName", "")))]
+    major, minor, patch = max(versions, default=(0, 1, 0))
+    tag = f"v{major}.{minor}.{patch + 1}"
 if destination not in ("beta", "release") or (destination == "release" and
         not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag)):
     raise ValueError("Release version must look like v0.1.0")
@@ -132,7 +140,7 @@ else:
              "Automated patch and server tests passed; two-PC multiplayer races require manual validation.")
 args = ["gh", "release", "create", tag, *[str(asset) for asset in release_assets], "--target", info["source_sha"],
         "--title", tag, "--notes", notes]
-args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--latest=true"]
+args += ["--prerelease", "--latest=false"] if destination == "beta" else ["--draft"]
 subprocess.run(args, check=True)
 with open(os.environ["GITHUB_OUTPUT"], "a") as f:
     f.write(f"tag={tag}\n")

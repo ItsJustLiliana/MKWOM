@@ -10774,7 +10774,7 @@ index b7fc741..b7d2cce 100644
  HOST_OVERRIDE("_ZN2nn3ldn8FinalizeEv", ov_nothing);
  HOST_OVERRIDE("_ZN2nn3ldn8GetStateEv", ov_ldn_state);
  HOST_OVERRIDE("_ZN2nn3ldn19GetDisconnectReasonEv", ov_ldn_state);
-@@ -114,13 +237,1287 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
+@@ -114,12 +237,1286 @@ HOST_OVERRIDE("_ZN2nn3ldn22SetStationAcceptPolicyENS0_12AcceptPolicyE", ov_ldn_d
  HOST_OVERRIDE("_ZN2nn3ldn6RejectENS0_11Ipv4AddressE", ov_ldn_disabled);
  HOST_OVERRIDE("_ZN2nn3ldn22AttachStateChangeEventEPNS_2os15SystemEventTypeE", ov_nothing);
  

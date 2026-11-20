@@ -31,6 +31,7 @@ _attempts = {}
 
 class GameTicketRequest(BaseModel):
     friend_code: str = Field(pattern=r"^[0-9]{12}$")
+    channel: str | None = Field(default=None, pattern=r"^(beta|release)$")
 
 
 class RacePlayer(BaseModel):
@@ -193,7 +194,13 @@ def game_ticket(body: GameTicketRequest, token_hash: str = Depends(bearer)):
     if not found:
         raise HTTPException(401, "Session expired or revoked")
     expiry = int(time.time()) + GAME_TICKET_LIFETIME
-    message = f"v1.{found[0]}.{body.friend_code}.{expiry}.{secrets.token_hex(8)}"
+    # Scoped v2 tickets prevent confusing Beta and Release races with the same
+    # account. V1 is retained only for old pre-scoring clients and servers.
+    nonce = secrets.token_hex(8)
+    if body.channel:
+        message = f"v2.{found[0]}.{body.channel}.{body.friend_code}.{expiry}.{nonce}"
+    else:
+        message = f"v1.{found[0]}.{body.friend_code}.{expiry}.{nonce}"
     sig = hmac.new(bytes.fromhex(configured), message.encode("ascii"), hashlib.sha256).hexdigest()
     return {"ticket": message + "." + sig, "expires_at": expiry}
 

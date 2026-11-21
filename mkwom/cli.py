@@ -117,6 +117,8 @@ def launch(game: Path):
     # Refuse anonymous sessions for both GUI and CLI launch paths.
     # The native server must independently enforce auth before public release.
     from .accounts_client import AuthError, current_user
+    from .mod_safety import require_unmodded_code_online
+    require_unmodded_code_online(game)
     settings = read_json(game / ".mkwom/settings.json", {})
     profile = current_user(settings.get("channel", "release"))
     if not profile or not profile.get("id"):

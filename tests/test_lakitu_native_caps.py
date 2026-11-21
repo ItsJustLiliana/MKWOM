@@ -6,7 +6,7 @@ compilation and protocol regressions run in the repository's server CI job.
 from pathlib import Path
 
 
-PATCH = (Path(__file__).resolve().parents[1] / "patches" / "multiplayer.patch").read_text()
+PATCH = (Path(__file__).resolve().parents[1] / "patches" / "multiplayer.patch").read_text(encoding="utf-8")
 
 
 def session_source():

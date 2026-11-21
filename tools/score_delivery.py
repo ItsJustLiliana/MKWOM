@@ -5,6 +5,7 @@ score-outbox directory. Never remove event files before an authenticated,
 committed acknowledgement. No live service installation is performed here.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,46 @@ SAFE_RACE = re.compile(r"[A-Za-z0-9_-]{12,128}\Z")
 SAFE_ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
 CHANNELS = ("beta", "release")
 MAX_EVENT = 16 * 1024
+
+
+def retain_commit_receipt(event_path: Path, event: dict, channel: str) -> None:
+    """Retain a crash-safe local proof of central acceptance before removing outbox.
+
+    The central participant-visible receipt is queried through /race-receipt.
+    This local receipt is only for recovery by a trusted generation worker.
+    """
+    directory = event_path.parent.parent / "score-receipts"
+    if directory.is_symlink():
+        raise ValueError("Refusing linked score receipt directory")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    canonical = sorted((player["account_id"], player["position"], player["points"])
+                       for player in event["players"])
+    digest = hashlib.sha256(repr((event["game_mode"], canonical)).encode("ascii")).hexdigest()
+    receipt = {"committed": True, "channel": channel, "race_id": event["race_id"],
+               "game_mode": event["game_mode"], "payload_hash": digest}
+    target = directory / event_path.name
+    if target.is_symlink():
+        raise ValueError("Refusing linked score receipt")
+    if target.exists():
+        if json.loads(target.read_text()) != receipt:
+            raise ValueError("Conflicting existing score receipt")
+        return
+    temp = directory / (event_path.stem + "." + os.urandom(8).hex() + ".tmp")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(receipt, stream, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp, target)
+        if os.name == "posix":
+            dirfd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dirfd)
+            finally:
+                os.close(dirfd)
+    finally:
+        temp.unlink(missing_ok=True)
 
 
 def deliver_one(path: Path, channel: str, api_url: str, secret: str) -> bool:
@@ -62,7 +103,9 @@ def deliver_one(path: Path, channel: str, api_url: str, secret: str) -> bool:
                 return False
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         return False
-    # Safe after the API committed the transaction. Retries on crash are idempotent.
+    # Write a retained local receipt BEFORE deleting the outbox event. A crash
+    # after the central commit can replay idempotently without losing the receipt.
+    retain_commit_receipt(path, event, channel)
     path.unlink()
     return True
 

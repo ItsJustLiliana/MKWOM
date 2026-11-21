@@ -175,3 +175,29 @@ def test_scored_solo_race_is_zero_and_retry_does_not_inflate(client):
     assert scores(client, token, "beta").json()["races"] == 1
     assert client.get("/scores?channel=beta&game_mode=race",
                       headers={"Authorization": "Bearer " + token}).json()["rating"] == 3000
+
+
+def test_central_receipt_requires_committed_result_and_participant_session(client):
+    token_a, a = register(client, "ReceiptAlpha")
+    token_b, b = register(client, "ReceiptBravo")
+    h_a = {"Authorization": "Bearer " + token_a}
+    h_b = {"Authorization": "Bearer " + token_b}
+    params = {"channel": "beta", "race_id": "receipt-race-20001"}
+    assert client.get("/race-receipt", params=params, headers=h_a).status_code == 404
+    assert publish(client, "beta", params["race_id"],
+                   [{"account_id": a, "position": 1, "points": 100000}]).status_code == 200
+    receipt = client.get("/race-receipt", params=params, headers=h_a)
+    assert receipt.status_code == 200, receipt.text
+    data = receipt.json()
+    assert data["committed"] is True
+    assert data["channel"] == "beta" and data["race_id"] == params["race_id"]
+    assert data["game_mode"] == "race"
+    assert len(data["payload_hash"]) == 64
+    assert data["rating_delta"] == 0
+    assert data["position"] == 1
+    assert client.get("/race-receipt", params=params, headers=h_b).status_code == 404
+    assert client.get("/race-receipt", params={"channel": "release", "race_id": params["race_id"]},
+                      headers=h_a).status_code == 404
+    assert client.get("/race-receipt", params=params).status_code == 401
+    assert client.get("/race-receipt", params={"channel": "pre-beta", "race_id": params["race_id"]},
+                      headers=h_a).status_code == 422

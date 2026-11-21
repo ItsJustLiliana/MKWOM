@@ -32,9 +32,11 @@ def retain_commit_receipt(event_path: Path, event: dict, channel: str) -> None:
         directory = event_path.parent.parent.parent / "score-receipts" / channel
     else:
         directory = event_path.parent.parent / "score-receipts"
-    if directory.is_symlink():
+    if directory.is_symlink() or directory.parent.is_symlink():
         raise ValueError("Refusing linked score receipt directory")
-    directory.mkdir(mode=0o700, exist_ok=True)
+    # The first scored event creates both the shared receipt root and its
+    # channel namespace. A fresh server has neither directory yet.
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     canonical = sorted((player["account_id"], player["position"], player["points"])
                        for player in event["players"])
     digest = hashlib.sha256(repr((event["game_mode"], canonical)).encode("ascii")).hexdigest()

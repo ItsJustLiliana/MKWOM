@@ -53,7 +53,9 @@ def test_beta_requires_queued_receipt_and_release_requires_active_beta():
     script = contents("tools/promote.py")
     assert 'required_source = "pre-beta"' in script
     assert 'required_source = "beta"' in script
-    assert "queued-strato.json" in script
+    assert "download_queued_candidate(candidate, Path(\"dist\"))" in script
+    assert "queued-strato.json" in contents("tools/candidate_store.py")
+    assert "strato-queue-receipt" in contents(".github/workflows/build.yml")
     assert 'approved.get("tag") != candidate' in script
 
 

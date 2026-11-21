@@ -69,11 +69,11 @@ A newly released upstream Recomp version is **not automatically compatible**. Un
 
 | Stage | What it means |
 | --- | --- |
-| **Pre-beta** | Automated build and staging queue, **not** a public update channel |
+| **Pre-beta** | Private GitHub Actions build artifacts and STRATO staging queue, **not** a public GitHub Release |
 | **Beta** | Operator-approved build for testing; Beta matchmaking and scores |
 | **Release** | The exact approved Beta artifacts promoted to stable without recompiling; Release matchmaking and scores |
 
-GitHub Actions builds and tests Windows and Linux artifacts on pushes to `main` and queues the pre-beta server candidate for STRATO. An operator explicitly promotes a queued candidate to Beta, validates the game, and only then promotes that active Beta to Release. The **same existing server process** serves both channels, with channel separation enforced by signed tickets and independent scoring workers. Server binary updates can disconnect active games; seamless update handoff is tracked in [issue #33](https://github.com/ItsJustLiliana/MKWOM/issues/33).
+GitHub Actions builds and tests Windows and Linux artifacts on pushes to `main`, stores each internal candidate as a private Actions artifact (90-day retention), and queues the pre-beta server candidate for STRATO. Internal candidates no longer appear on the public GitHub Releases page; only approved Beta and stable Release versions belong there. An operator explicitly promotes a queued candidate to Beta, validates the game, and only then promotes that active Beta to Release. The **same existing server process** serves both channels, with channel separation enforced by signed tickets and independent scoring workers. Server binary updates can disconnect active games; seamless update handoff is tracked in [issue #33](https://github.com/ItsJustLiliana/MKWOM/issues/33).
 
 For server maintainers: [STRATO setup](docs/strato-migration.md) · [Build/promotion pipeline](docs/pipeline-strato.md) · [Score and channel security](docs/scores-and-security.md).
 

@@ -105,13 +105,13 @@ jobs:
           SOURCE_BRANCH: ${{ github.ref_name }}
           RUN_ID: ${{ github.run_id }}
         run: python3 tools/release_metadata.py
-      - name: Publish tested candidate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.meta.outputs.tag }}
-        run: |
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease --latest=false \
-            --title "$TAG" --notes "AI-assisted MKWOM candidate. Automated patch round-trip and server protocol checks passed. Real two-PC races still require operator testing."
+      - name: Store tested pre-beta privately as Actions artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: candidate-bundle
+          path: dist/*
+          retention-days: 90
+          if-no-files-found: error
 
   queue-strato:
     name: Queue tested build on STRATO (no activation)
@@ -123,16 +123,58 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - name: Download and verify immutable build
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE: ${{ needs.publish.outputs.tag }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: candidate-bundle
+          path: dist
+      - name: Verify immutable staged build
         run: |
           set -euo pipefail
-          mkdir -p dist
-          gh release download "$CANDIDATE" --dir dist --pattern 'mkwom-server-linux-x64.tar.gz' --pattern 'SHA256SUMS'
           cd dist
-          grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
+          grep '  mkwom-server-linux-x64.tar.gz      - name: Configure pinned STRATO SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
+          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
+          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+      - name: Store candidate in STRATO pending queue
+        env:
+          CANDIDATE: ${{ needs.publish.outputs.tag }}
+          DEPLOY_SSH_KEY_PATH: ${{ runner.temp }}/mkwom-ssh/id_ed25519
+          DEPLOY_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/mkwom-ssh/known_hosts
+        run: python3 tools/queue_strato.py
+      - name: Record private proof of STRATO acceptance
+        env:
+          CANDIDATE: ${{ needs.publish.outputs.tag }}
+        run: |
+          printf '{"format":1,"target":"strato","candidate":"%s"}\n' "$CANDIDATE" > dist/queued-strato.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: strato-queue-receipt
+          path: dist/queued-strato.json
+          retention-days: 90
+          if-no-files-found: error
+  cleanup-old-prebeta:
+    name: Remove obsolete public pre-beta releases
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [queue-strato]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remove only legacy internal release entries after private candidate is safely queued
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/cleanup_prebeta_releases.py
+ SHA256SUMS | sha256sum --check --strict -
       - name: Configure pinned STRATO SSH key
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}

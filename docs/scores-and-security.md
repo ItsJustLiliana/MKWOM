@@ -14,7 +14,7 @@ Release and Beta may use the **same existing native lobby process and account/fr
 ## One-time STRATO setup (before Release)
 
 1. Back up **both** the account API database and native `server/` data, including friend relationships and TLS identity. Use the existing native data directory; never initialize a second writer.
-2. Configure `MKWOM_GAME_TICKET_KEY` identically for the account API and native server, and explicitly set `MKWOM_ACCOUNT_ENFORCE=1` on the native server.
+2. Configure `MKWOM_GAME_TICKET_KEY` identically for the account API and native server, and explicitly set `MKWOM_ACCOUNT_ENFORCE=1` and `MKWOM_REQUIRE_SCOPED_TICKETS=1` on the native server. These prevent unscoped old clients from entering scored channels.
 3. **Unset `MKWOM_SCORE_CHANNEL` on the native server.** The old single-channel override would reject the other channel and block dual-channel promotion. The server now derives the channel from each signed v2 ticket.
 4. Provision distinct `MKWOM_SCORE_BETA_KEY` and `MKWOM_SCORE_RELEASE_KEY` in the account API service. Make user-owned 0600 private environment files for the corresponding score workers. Never commit or expose writer keys to the game, client or CI logs.
 5. Deploy the new native server archive using the normal authenticated single-server deploy workflow. The archive now includes `score_delivery.py` and `install_score_service.py`; the deployer stages both in `~/projects/MKWOM-server/tools/` but deliberately does not activate secrets or services.

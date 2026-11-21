@@ -40,11 +40,11 @@ def test_beta_release_cap_scoped_without_forced_eviction():
     end = src.index("static SrvSession *session_new(", start)
     code = src[start:end]
     assert "sessions[i]->channel" in code
-    assert "channel_session_count(channel) < cap" in code
+    assert "channel_session_count(channel) < lakitu_cap(channel)" in code
     assert "session_close(" not in code
     assert "session_drop(" not in code
 
 
 def test_legacy_sessions_unaffected():
     src = session_source()
-    assert "if (!key) return 1;" in src
+    assert 'if (strcmp(channel, "beta") && strcmp(channel, "release")) return 1;' in src

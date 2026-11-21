@@ -20,8 +20,25 @@ if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", os.environ["DEPLOY_UNIT"]):
     raise ValueError("invalid service unit")
 if not re.fullmatch(r"[0-9]+", os.environ["LOBBY_PORT"]):
     raise ValueError("invalid lobby port")
-if os.environ["DEPLOY_ROOT"] != "/home/mkwom/projects/MKWOM-server":
-    raise ValueError("deployment root must belong to MKWOM on STRATO")
+# A single shared lobby was the cause of destructive cross-channel promotions.
+# Refuse deployment unless the promoted channel has its own process, root and
+# TCP/UDP namespace. Pre-beta has no deployment target at all.
+stage = os.environ.get("DEPLOY_STAGE", "")
+targets = {
+    "beta": ("/home/mkwom/projects/MKWOM-server-beta", "mkw-lobby-beta.service", "19443"),
+    "release": ("/home/mkwom/projects/MKWOM-server-release", "mkw-lobby-release.service", "18443"),
+}
+if stage not in targets:
+    raise ValueError("only explicit Beta or Release promotions may deploy a live server")
+expected_root, expected_unit, expected_port = targets[stage]
+if (os.environ["DEPLOY_ROOT"], os.environ["DEPLOY_UNIT"],
+        os.environ["LOBBY_PORT"]) != (expected_root, expected_unit, expected_port):
+    raise ValueError(
+        "Unsafe shared or mismatched deployment target; configure a separate "
+        f"{stage} server root, service and listener before promotion"
+    )
+if os.environ["LISTEN_HOST"] != "127.0.0.1":
+    raise ValueError("Deploy health checks must use the channel's local loopback listener")
 run_id = os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
 if not re.fullmatch(r"[0-9]+-[0-9]+", run_id):
     raise ValueError("invalid run ID")
@@ -31,6 +48,22 @@ ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
        "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15",
        "-o", "UserKnownHostsFile=" + os.environ["DEPLOY_SSH_KNOWN_HOSTS_PATH"],
        "-i", os.environ["DEPLOY_SSH_KEY_PATH"], login]
+# The opposite live channel must already exist and use a different unit/data
+# directory. Verify before uploading or stopping anything. No implicit migration.
+other = "release" if stage == "beta" else "beta"
+other_root, other_unit, other_port = targets[other]
+preflight = (
+    "set -eu; "
+    "test -d " + shlex.quote(expected_root) + "; "
+    "test -d " + shlex.quote(other_root) + "; "
+    "systemctl --user is-active --quiet " + shlex.quote(expected_unit) + "; "
+    "systemctl --user is-active --quiet " + shlex.quote(other_unit) + "; "
+    "test \"$(systemctl --user show " + shlex.quote(expected_unit) +
+    " --property=WorkingDirectory --value)\" = " + shlex.quote(expected_root) + "; "
+    "test \"$(systemctl --user show " + shlex.quote(other_unit) +
+    " --property=WorkingDirectory --value)\" = " + shlex.quote(other_root)
+)
+subprocess.run(ssh + [preflight], check=True)
 subprocess.run(ssh + ["umask 077; mkdir -p " + shlex.quote(remote)], check=True)
 try:
     for name in ("mkwom-server-linux-x64.tar.gz", "deploy_server.py"):

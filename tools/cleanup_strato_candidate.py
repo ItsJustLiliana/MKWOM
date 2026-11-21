@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 
-QUEUE = Path("/home/mkwom/projects/MKWOM-server/candidates")
+QUEUE = Path("/home/mkwom/projects/MKWOM-candidates")
 PATTERN = re.compile(r"pre-beta-[0-9]+-[a-f0-9]{12}\Z")
 INVENTORY = frozenset({"mkwom-server-linux-x64.tar.gz", "SHA256SUMS"})
 

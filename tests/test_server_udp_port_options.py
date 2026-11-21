@@ -86,3 +86,21 @@ def test_drain_rejects_new_races_in_existing_lobby_before_commit():
     assert "docs_rollback(&s->docs);" in transaction
     assert "return ST_UNAVAILABLE;" in transaction
     assert transaction.index("if (srv_draining())") < transaction.index("docs_end(&s->docs, now)")
+
+
+def test_existing_knockout_tour_can_continue_during_drain():
+    referee_header = source("srv_referee.h")
+    referee = source("srv_referee.c")
+    gamesync = source("srv_gamesync.c")
+    assert "int referee_admitted_competition(" in referee_header
+    assert "knockout_id(request_id, tour, sizeof tour, &section)" in referee
+    assert "prior->used && prior->section >= 0 && prior->section < section" in referee
+    assert "!strcmp(prior->tour, tour)" in referee
+    assert "referee_admitted_competition(&s->referee, req)" in gamesync
+
+
+def test_timer_referee_result_never_broadcasts_if_outbox_write_fails():
+    session = source("srv_session.c")
+    tick = session[session.index("void srv_session_tick("):]
+    assert "if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)" in tick
+    assert "srv_gs_changed(sessions[i], 0);" in tick

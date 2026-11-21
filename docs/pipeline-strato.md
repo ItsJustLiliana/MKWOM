@@ -27,7 +27,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/mkwom/projects/MKWOM-beta
-ExecStart=/home/mkwom/projects/MKWOM-beta/build/server/mkw-server --host 0.0.0.0 --port 19443 --udp-ports 13478,13479,11025,11125,13334 --data /home/mkwom/projects/MKWOM-beta/server
+ExecStart=/home/mkwom/projects/MKWOM-beta/mkw-server --host 0.0.0.0 --port 19443 --udp-ports 13478,13479,11025,11125,13334 --data /home/mkwom/projects/MKWOM-beta/server
 EnvironmentFile=/home/mkwom/.config/mkwom/game-auth.env
 Restart=on-failure
 RestartSec=5
@@ -121,7 +121,7 @@ Set these in **Settings → Environments → pre-beta**:
 | Variable | AUTO_DEPLOY | In Beta and Release environments only: `true`, **after** separate units and UDP/TURN networking are validated. Never set automatic live deployment on pre-beta. |
 
 The SSH key's public half must be authorized for `mkwom` on STRATO.
-The pre-beta environment needs no approval rule for automatic queueing. The **beta** and **release** GitHub environments each need their own `DEPLOY_ROOT`, `DEPLOY_UNIT`, `LOBBY_PORT` and deployment credentials. They can share the physical VPS and read-only SSH key, but **must not** share a native game service or data directory. A configured `pre-beta` environment has queue-only SSH credentials and no writable live-service deployment variables.
+The pre-beta environment needs no approval rule for automatic queueing. The deployment root is pinned by channel in the workflow; the **beta** and **release** GitHub environments each need their own `DEPLOY_UNIT`, `LOBBY_PORT` and deployment credentials. They can share the physical VPS and read-only SSH key, but **must not** share a native game service or data directory. A configured `pre-beta` environment has queue-only SSH credentials and no writable live-service deployment variables.
 
 Use the **Test STRATO SSH access** workflow first. A missing secret or bad host key must cause failures without falling back to Arch. The initial queue upload requires this setup; without it the build can still pass, but the queue stage fails and no receipt is issued.
 

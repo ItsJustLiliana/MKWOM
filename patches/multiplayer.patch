@@ -17494,7 +17494,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1124 @@
+@@ -0,0 +1,1128 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17905,7 +17905,8 @@ index 0000000..fb8f922
 +    SrvSession *s = NULL;
 +    for (int i = 0; i < nsessions && !s; i++)
 +        if (sessions[i]->room && !strcmp(sessions[i]->creation, last_seg(name))) s = sessions[i];
-+    if (s && !srv_member(s, srv_call_uid(c))) s = NULL;
++    if (s && (!srv_member(s, srv_call_uid(c)) ||
++              strcmp(s->channel, srv_player_channel(srv_call_uid(c))))) s = NULL;
 +    PbOut o = {0};
 +    pb_str(&o, 1, name);
 +    if (s) {
@@ -18227,7 +18228,8 @@ index 0000000..fb8f922
 +    str_of(msg, len, 1, name, sizeof name);
 +    snprintf((*kp)->id, sizeof (*kp)->id, "%s", last_seg(name));
 +    Ticket *t = ticket_find((*kp)->id);
-+    if (t && strcmp(t->uid, srv_call_uid(c))) t = NULL;
++    if (t && (strcmp(t->uid, srv_call_uid(c)) ||
++              strcmp(t->channel, srv_player_channel(srv_call_uid(c))))) t = NULL;
 +    if (t) {
 +        (*kp)->known = 1;
 +        track_send(c, *kp, t);
@@ -18262,7 +18264,9 @@ index 0000000..fb8f922
 +    char name[160];
 +    str_of(msg, len, 1, name, sizeof name);
 +    Ticket *t = ticket_find(last_seg(name));
-+    if (t && !strcmp(t->uid, srv_call_uid(c)) && !final_state(t->state)) t->state = T_CANCELLED;
++    if (t && !strcmp(t->uid, srv_call_uid(c)) &&
++        !strcmp(t->channel, srv_player_channel(srv_call_uid(c))) &&
++        !final_state(t->state)) t->state = T_CANCELLED;
 +    PbOut o = {0};
 +    reply(c, &o);
 +}

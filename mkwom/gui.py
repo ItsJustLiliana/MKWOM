@@ -6,7 +6,7 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .cli import COMMUNITY_ENDPOINT, launch, update, update_status
+from .cli import COMMUNITY_ENDPOINT, channel_endpoint, launch, update, update_status
 from .accounts_client import AuthError, api_base, authenticate, channel_scores, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
@@ -197,7 +197,7 @@ class Launcher:
             save_folder(folder)
             settings = read_json(folder / ".mkwom" / "settings.json", {})
             self.channel.set(settings.get("channel") if settings.get("channel") in ("beta", "release") else "release")
-            self.endpoint.set(COMMUNITY_ENDPOINT)
+            self.endpoint.set(channel_endpoint(self.channel.get()))
             self.update_auth_buttons()
             version = installed_version(folder)
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
@@ -216,7 +216,7 @@ class Launcher:
     def persist(self, folder: Path):
         settings = read_json(folder / ".mkwom" / "settings.json", {})
         settings["channel"] = self.channel.get()
-        settings["endpoint"] = COMMUNITY_ENDPOINT
+        settings["endpoint"] = channel_endpoint(self.channel.get())
         settings["endpoint_mode"] = "channel"
         json_write(folder / ".mkwom" / "settings.json", settings)
 

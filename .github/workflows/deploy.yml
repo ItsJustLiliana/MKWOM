@@ -25,6 +25,7 @@ jobs:
       - name: Verify manual stage deployment configuration
         env:
           AUTO_DEPLOY: ${{ vars.AUTO_DEPLOY }}
+          DEPLOY_STAGE: ${{ inputs.environment }}
           DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}
@@ -35,6 +36,7 @@ jobs:
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
           test "$AUTO_DEPLOY" = true || { echo "::error::Stage is not enabled. Set AUTO_DEPLOY=true only after initial host setup."; exit 1; }
+          case "$DEPLOY_STAGE" in beta|release) ;; *) echo "::error::Live deploy must explicitly target beta or release"; exit 1 ;; esac
           for key in DEPLOY_ROOT DEPLOY_UNIT LISTEN_HOST LOBBY_PORT DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_SSH_KNOWN_HOSTS; do
             test -n "${!key}" || { echo "::error::Missing required stage setting: $key"; exit 1; }
           done
@@ -76,6 +78,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_STAGE: ${{ inputs.environment }}
           DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}

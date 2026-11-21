@@ -12,6 +12,8 @@ from tools import score_delivery
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "DB_PATH", tmp_path / "accounts.sqlite3")
+    # Each test uses a fresh database; reset the in-memory registration rate limit too.
+    monkeypatch.setattr(accounts, "_attempts", {})
     monkeypatch.setenv("MKWOM_SCORE_BETA_KEY", "ac" * 32)
     monkeypatch.setenv("MKWOM_SCORE_RELEASE_KEY", "bd" * 32)
     testclient = TestClient(accounts.app)

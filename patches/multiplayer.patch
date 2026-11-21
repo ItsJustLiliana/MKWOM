@@ -15371,7 +15371,7 @@ new file mode 100644
 index 0000000..1a45439
 --- /dev/null
 +++ b/runtime/srv/srv_h2.c
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,542 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection (srv_h2.h): TLS with Mbed TLS over a non-blocking socket, HTTP/2 with nghttp2 fed from
 +// memory (no socket of its own), and gRPC calls on its streams, handed to the services of srv_methods.c (srv_svc.h).
@@ -15380,6 +15380,7 @@ index 0000000..1a45439
 +// the player cancels it, a bidi stream nothing until the player half-closes it.
 +#include "srv_h2.h"
 +
++#include <ctype.h>
 +#include <limits.h>
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -15391,6 +15392,7 @@ index 0000000..1a45439
 +
 +#include "srv.h"
 +#include "srv_auth.h"
++#include "srv_session.h"
 +#include "srv_svc.h"
 +
 +#ifndef MSG_NOSIGNAL
@@ -15770,6 +15772,31 @@ index 0000000..1a45439
 +size_t srv_mem_in_use(void) { return mem_all; }
 +
 +int srv_conn_kicked(const SrvConn *c) { return c->kicked; }
++// Evaluate against the Gamesync token actually bound to the live session.
++// Account identity alone is insufficient: a player may belong to other rooms.
++int srv_conn_admin_kicked(const SrvConn *conn) {
++    for (const Call *call = conn->calls; call; call = call->next) {
++        const char *auth = call->auth;
++        while (*auth == ' ') auth++;
++        const char *prefix = "bearer ";
++        int bearer = 1;
++        for (int i = 0; prefix[i]; i++)
++            if (!auth[i] || tolower((unsigned char)auth[i]) != prefix[i]) { bearer = 0; break; }
++        if (!bearer) continue;
++        auth += 7;
++        while (*auth == ' ') auth++;
++        size_t n = strcspn(auth, " \t\r\n");
++        if (!n || n >= TOKEN_MAX) continue;
++        char token[TOKEN_MAX], uid[24];
++        memcpy(token, auth, n);
++        token[n] = 0;
++        SrvSession *session = srv_session_by_token(token, uid);
++        if (session && srv_session_admin_should_kick(session, uid)) return 1;
++    }
++    return 0;
++}
++
+
 +
 +void srv_conn_free(SrvConn *c) {
 +    // A call's close handler may reply to others (a player leaving a room tells the rest): none of those replies may
@@ -15893,7 +15920,7 @@ new file mode 100644
 index 0000000..34af20a
 --- /dev/null
 +++ b/runtime/srv/srv_h2.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection to the online server's gRPC port: TLS (srv_tls.h), HTTP/2 (nghttp2) and gRPC calls on it.
 +// Run from the server's single poll loop: srv_conn_step does what the socket allows and never waits.
@@ -15917,6 +15944,7 @@ index 0000000..34af20a
 +// 1 when replies were queued on it outside its own step (one player's write sent to another's stream): the loop steps
 +// it again at once instead of after the next poll (up to 250 ms later).
 +int srv_conn_kicked(const SrvConn *c);
++int srv_conn_admin_kicked(const SrvConn *c);
 +// What all connections' buffers hold now (within 4 MiB per connection, 128 MiB in all).
 +size_t srv_mem_in_use(void);
 diff --git a/runtime/srv/srv_main.c b/runtime/srv/srv_main.c

@@ -22941,7 +22941,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1188 @@
+@@ -0,0 +1,1194 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -23921,6 +23921,12 @@ index 0000000..b955046
 +    assert result[4] == {"request_id": f"R{ua[-4:]}", "status": 0, "result": [], "user_session_count": 2}, result
 +    race = result[3].rsplit("/", 1)[1]
 +    assert len(race) == 36 and race.count("-") == 4
++    # A different authenticated participant cannot submit A's report or
++    # replace the authoritative final result document directly.
++    assert write(b, gb, w_set(f"@@RefereeReport/{race}/User/1",
++                               {"result": [1, 0], "result_order": [1, 2]})) == {}
++    assert write(b, gb, w_set(f"@@RefereeResult/{race}",
++                               {"status": 1, "result": [1, 0]})) == {}
 +    write(a, ga, w_set(f"@@RefereeReport/{race}/User/1", {"result": [0, 1], "result_order": [1, 2]}))
 +    pump_all([a, b], lambda: any(e[4].get("status") == 1 for e in docs_of(b, lb, "3")))
 +    final = [e for e in docs_of(b, lb, "3") if e[4].get("status") == 1][-1][4]

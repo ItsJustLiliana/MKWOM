@@ -1,6 +1,4 @@
 """Single-server score service generation is explicit and safe."""
-from pathlib import Path
-
 import pytest
 
 from tools.install_score_service import make_unit, safe_path

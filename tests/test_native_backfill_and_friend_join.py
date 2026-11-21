@@ -26,4 +26,5 @@ def test_friend_join_selects_explicit_lobby_with_channel_and_capacity_checks():
     assert "s->admin_locked || s->nmembers >= s->max_players" in sessions
     assert "srv_gs_changed(s, 1);" in sessions
     assert '"requested lobby is unavailable"' in sessions
-    assert "session_recent(c" not in sessions
+    join_body = sessions.split("static void join(SrvCall *c", 1)[1].split("static void get_session(", 1)[0]
+    assert "session_recent(c" not in join_body

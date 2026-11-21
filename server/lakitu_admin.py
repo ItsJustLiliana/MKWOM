@@ -122,7 +122,7 @@ def snapshot() -> dict:
         "schema_version": 1, "server_name": "MKWOM / STRATO",
         "server_version": version, "generation": None,
         "uptime_seconds": uptime, "status": "healthy" if running else "offline",
-        "capabilities": (["limits.write", "lobby.lock", "lobby.unlock", "lobby.drain", "lobby.close"] if native is not None and running else []), "metrics": {
+        "capabilities": (["limits.write", "lobby.lock", "lobby.unlock", "lobby.drain", "lobby.close", "lobby.force_close", "player.disconnect"] if native is not None and running else []), "metrics": {
             "memory_mb": round(mem, 1) if mem is not None else None,
             "native_capacity_last_reported": capacity,
         },
@@ -160,11 +160,20 @@ def set_lobby_cap(channel: str, body: dict = Body(...),
 def change_lobby(channel: str, lobby_id: str, action: str,
                  authorization: str | None = Header(default=None)):
     authorize(authorization)
-    if action not in ("lock", "unlock", "drain", "close"):
+    if action not in ("lock", "unlock", "drain", "close", "force-close"):
         raise HTTPException(422, "Unsupported lobby operation")
     state = snapshot()
     enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
     return native_send(ROOT, action, channel, lobby_id, enabled)
+
+
+@app.post("/v1/players/{channel}/{session_id}/disconnect")
+def disconnect_player(channel: str, session_id: str,
+                      authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, "kick", channel, session_id, enabled)
 
 
 @app.api_route("/v1/{path:path}", methods=["POST", "PUT", "PATCH", "DELETE"])

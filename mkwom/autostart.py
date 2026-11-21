@@ -11,7 +11,7 @@ import shutil
 import sys
 
 from .accounts_client import AuthError, current_user, token
-from .cli import launch, update
+from .cli import launch, launch_offline, update
 from .installer import read_json
 from .direct_launch import persist_online_settings
 from .session_storage import protect_for_game
@@ -90,15 +90,42 @@ def main(argv: list[str] | None = None) -> int:
         _wait_for_original_game(args.parent_pid)
         update_and_launch(args.game)
     except (OSError, ValueError, RuntimeError) as error:
-        # No PowerShell is required; display the actual problem to the player.
+        # The online updater and account service are optional for singleplayer.
+        # Offer offline instead of turning a 404, outage or stale patcher into
+        # a hard game-launch failure. The offline process forces MKW_ONLINE=0.
         import tkinter as tk
         from tkinter import messagebox
         root = tk.Tk()
         root.withdraw()
         try:
-            messagebox.showerror("MKWOM multiplayer", str(error))
+            outdated = "new patcher is required" in str(error).lower()
+            if outdated:
+                import webbrowser
+                if messagebox.askyesno(
+                    "MKWOM update available",
+                    "The installed MKWOM updater is outdated. Download the latest "
+                    "MKWOM Setup from GitHub Releases?\n\n"
+                    "You can still launch the game offline."):
+                    webbrowser.open("https://github.com/ItsJustLiliana/MKWOM/releases/latest")
+            offline = messagebox.askyesno(
+                "MKWOM online unavailable",
+                "Online play or its update check could not complete:\n"
+                + str(error) + "\n\n"
+                "Start Mario Kart World in offline/singleplayer mode instead? "
+                "Your saves, mods and installed patch will not be changed.")
         finally:
             root.destroy()
+        if offline:
+            try:
+                launch_offline(args.game)
+                return 0
+            except (OSError, ValueError, RuntimeError) as offline_error:
+                popup = tk.Tk()
+                popup.withdraw()
+                try:
+                    messagebox.showerror("Offline launch failed", str(offline_error))
+                finally:
+                    popup.destroy()
         return 1
     return 0
 

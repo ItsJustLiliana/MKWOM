@@ -144,6 +144,12 @@ def main():
         p.error("unit uses a different account store")
     if "--port" not in argv or argv[argv.index("--port") + 1] != str(a.port):
         p.error("unit uses a different lobby port")
+    udp_flag = "--udp-ports"
+    if a.stage == "beta":
+        if udp_flag not in argv or argv[argv.index(udp_flag) + 1] != "13478,13479,11025,11125,13334":
+            p.error("Beta unit must bind dedicated UDP STUN/NAT ports")
+    elif udp_flag in argv and argv[argv.index(udp_flag) + 1] != "3478,3479,10025,10125,33334":
+        p.error("Release unit must retain its original UDP STUN/NAT ports")
     active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", a.unit]).returncode == 0
     if not active:
         p.error("deployment expects a healthy running instance; perform initial installation separately")

@@ -17497,7 +17497,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1332 @@
+@@ -0,0 +1,1343 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17593,7 +17593,7 @@ index 0000000..fb8f922
 +            "\"version\":\"%s\",\"status\":\"%s\",\"capacity\":%d,"
 +            "\"player_count\":%d,\"created_at\":%lld,\"players\":[",
 +            i ? "," : "", id, channel, config, version,
-+            s->admin_draining ? "draining" : s->admin_locked ? "locked" :
++            s->admin_close_pending ? "closing" : s->admin_draining ? "draining" : s->admin_locked ? "locked" :
 +            s->closed ? "closed" : s->listeners ? "connected" : "waiting",
 +            s->max_players, s->nmembers, (long long)s->created);
 +        for (int k = 0; ok && k < s->nmembers; k++) {
@@ -17898,13 +17898,14 @@ index 0000000..fb8f922
 +                 plat_file_write_atomic(limits, values, (size_t)length);
 +            if (!ok) { lakitu_beta_cap = old_beta; lakitu_release_cap = old_release; }
 +        }
-+    } else if (!strcmp(op, "lock") || !strcmp(op, "unlock") || !strcmp(op, "drain")) {
++    } else if (!strcmp(op, "lock") || !strcmp(op, "unlock") || !strcmp(op, "drain") || !strcmp(op, "close")) {
 +        SrvSession *s = srv_session_find(value);
 +        if (s && !strcmp(s->channel, channel)) {
 +            if (!strcmp(op, "unlock") && s->admin_draining) ok = 0;
 +            else {
 +                s->admin_locked = strcmp(op, "unlock") != 0;
-+                if (!strcmp(op, "drain")) s->admin_draining = 1;
++                if (!strcmp(op, "drain") || !strcmp(op, "close")) s->admin_draining = 1;
++                if (!strcmp(op, "close")) s->admin_close_pending = 1;
 +                ok = 1;
 +            }
 +        }
@@ -18808,6 +18809,16 @@ index 0000000..fb8f922
 +        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
 +            srv_gs_changed(sessions[i], 0);
 +    }
++    // Graceful administrative close: never free a session while it has
++    // Gamesync listeners, an open race, or unqueued score results.
++    for (int i = nsessions - 1; i >= 0; i--) {
++        SrvSession *s = sessions[i];
++        if (!s->admin_close_pending || s->listeners || !srv_session_flush_scores(s)) continue;
++        int racing = 0;
++        for (int r = 0; r < RACES_MAX; r++)
++            if (s->referee.races[r].used && s->referee.races[r].open) racing = 1;
++        if (!racing) session_drop(i);
++    }
 +    lakitu_command();
 +    lakitu_snapshot();
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
@@ -18880,7 +18891,7 @@ index 0000000..2afd6d0
 +
 +typedef struct {
 +    char id[24], tenant[64], config[64], batching[64], version[64], alias[8], creation[24], channel[8];
-+    int room, closed, admin_locked, admin_draining, max_players, nmembers, listeners, ever_listened;
++    int room, closed, admin_locked, admin_draining, admin_close_pending, max_players, nmembers, listeners, ever_listened;
 +    SrvMember members[MEMBERS_MAX];   // in member order (the first is the host)
 +    int64_t next_ussid, next_upcsid;  // rooms: numbers handed out so far, never given twice
 +    SrvMap attrs;                     // the session attributes (GameSession field 11)

@@ -147,7 +147,7 @@ def test_beta_and_release_deployments_must_be_independent():
     assert "environment: pre-beta" not in beta + release
     remote = contents("tools/remote_deploy.py")
     assert "MKWOM-server-beta" in remote
-    assert "MKWOM-server-release" in remote
+    assert '"/home/mkwom/projects/MKWOM-server"' in remote
     assert "mkw-lobby-beta.service" in remote
     assert "mkw-lobby.service" in remote
     assert 'stage not in targets' in remote

@@ -16,7 +16,7 @@ ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
        "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15",
        "-o", "UserKnownHostsFile=" + str(hosts), "-i", str(key),
        "mkwom@31.70.192.231"]
-root = "/home/mkwom/projects/MKWOM-server/candidates"
+root = "/home/mkwom/projects/MKWOM-candidates"
 stage = root + "/" + tag
 subprocess.run(ssh + ["umask 077; mkdir -p " + shlex.quote(stage)], check=True)
 for name in ("mkwom-server-linux-x64.tar.gz", "SHA256SUMS"):

@@ -1,0 +1,102 @@
+diff --git a/runtime/srv/srv.h b/runtime/srv/srv.h
+--- a/runtime/srv/srv.h
++++ b/runtime/srv/srv.h
+@@ -8,6 +8,9 @@
+ // certificates could not be made, 2 on a bad argument.
+ int srv_main(int argc, char **argv);
+ 
++// The STUN and optional TURN UDP ports announced for this server instance.
++int srv_udp_port(int index);
++
+ // A line in the server's log (<data>/logs/server.log, and stderr), with the time in front.
+ void srv_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+ 
+diff --git a/runtime/srv/srv_main.c b/runtime/srv/srv_main.c
+--- a/runtime/srv/srv_main.c
++++ b/runtime/srv/srv_main.c
+@@ -26,10 +26,32 @@
+ 
+ enum { MAX_HOSTS = 8, MAX_LISTEN = 64, MAX_CONNS = 256, MAX_PER_IP = 16, LOG_MAX = 2 << 20 };
+ enum { K_STUN, K_NAT, K_GRPC, K_API };
++static struct {
+-static const struct {
+     int port, kind;
+ } UDP_PORTS[] = {{3478, K_STUN}, {3479, K_STUN}, {10025, K_NAT}, {10125, K_NAT}, {33334, K_NAT}};
+ 
++// The normal local game server retains all legacy defaults. Dedicated Beta
++// servers may select their own *five distinct* UDP listener ports.
++int srv_udp_port(int index) {
++    return index >= 0 && index < 5 ? UDP_PORTS[index].port : 0;
++}
++
++static int set_udp_ports(const char *text) {
++    int values[5];
++    for (int i = 0; i < 5; i++) {
++        if (*text < '0' || *text > '9') return 0;
++        char *end = NULL;
++        long value = strtol(text, &end, 10);
++        if (value < 1024 || value > 65535 ||
++            (i < 4 ? *end != ',' : *end != '\0')) return 0;
++        for (int j = 0; j < i; j++) if (values[j] == value) return 0;
++        values[i] = (int)value;
++        text = i < 4 ? end + 1 : end;
++    }
++    for (int i = 0; i < 5; i++) UDP_PORTS[i].port = values[i];
++    return 1;
++}
++
+ typedef struct {
+     Sock s;
+     int kind, udp;
+@@ -245,14 +267,23 @@
+             seconds = atoi(argv[++i]);
+         } else if (!strcmp(argv[i], "--port") && v && atoi(v) > 0 && atoi(v) < 65534) {
+             port = atoi(argv[++i]);
++        } else if (!strcmp(argv[i], "--udp-ports") && v && set_udp_ports(v)) {
++            i++;
+         } else if (!strcmp(argv[i], "--data") && v && *v) {
+             data_dir = argv[++i];
+         } else {
++            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--udp-ports A,B,C,D,E] [--data DIR] [--seconds S]  (at most %d "
+-            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--data DIR] [--seconds S]  (at most %d "
+                             "numeric addresses)\n", MAX_HOSTS);
+             return 2;
+         }
+     }
++    // Refuse TCP/UDP collisions before opening any data files or sockets.
++    for (int k = 0; k < 5; k++) {
++        if (UDP_PORTS[k].port == port || UDP_PORTS[k].port == port + 1) {
++            fprintf(stderr, "UDP and TCP listener ports must not overlap\n");
++            return 2;
++        }
++    }
+     if (!nhosts) hosts[nhosts++] = "127.0.0.1";
+     for (int h = 0; h < nhosts && !self_ip[0]; h++) {
+         unsigned char b[16];
+@@ -279,7 +310,7 @@
+         listen_on(hosts[h], port, 0, K_GRPC);
+         listen_on(hosts[h], port + 1, 0, K_API);
+         for (size_t k = 0; k < sizeof UDP_PORTS / sizeof *UDP_PORTS; k++) {
++            if (k == 1 && *srv_setting("turn_host", "")) continue; // external coturn owns the configured TURN port
+-            if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", "")) continue; // external coturn owns this port
+             listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
+         }
+     }
+diff --git a/runtime/srv/srv_session.c b/runtime/srv/srv_session.c
+--- a/runtime/srv/srv_session.c
++++ b/runtime/srv/srv_session.c
+@@ -826,12 +826,12 @@
+     pb_str(&o, 1, name);
+     size_t m = pb_begin(&o, 2);
+     pb_str(&o, 1, "stun.npln.nintendo.net");
++    pb_varint(&o, 2, (uint64_t)srv_udp_port(0));
+-    pb_varint(&o, 2, 3478);
+     pb_varint(&o, 3, 1);   // UDP
+     pb_end(&o, m);
+     m = pb_begin(&o, 3);
+     pb_str(&o, 1, *relay ? relay : "relay.npln.nintendo.net");
++    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", srv_udp_port(1), 1, 65535));
+-    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", 3479, 1, 65535));
+     pb_varint(&o, 3, 1);
+     pb_str(&o, 4, *relay ? turn_user : uid);
+     pb_str(&o, 5, *relay ? turn_password : cred);

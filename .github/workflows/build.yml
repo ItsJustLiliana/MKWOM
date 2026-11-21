@@ -155,7 +155,7 @@ jobs:
         env:
           CANDIDATE: ${{ needs.publish.outputs.tag }}
         run: |
-          printf '{"format":1,"target":"strato","candidate":"%s"}\\n' "$CANDIDATE" > dist/queued-strato.json
+          printf '{"format":1,"target":"strato","candidate":"%s"}\n' "$CANDIDATE" > dist/queued-strato.json
       - uses: actions/upload-artifact@v7
         with:
           name: strato-queue-receipt

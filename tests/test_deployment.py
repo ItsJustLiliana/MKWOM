@@ -22,6 +22,7 @@ def artifact(path, worker=False):
              "NOTICE.md": b"notice", "LICENSE.nghttp2": b"MIT", "LICENSE.mbedtls": b"Apache"}
     if worker:
         files["score_delivery.py"] = b"print(\'safe event delivery\')\n"
+        files["install_score_service.py"] = b"# safe installer\n"
     with tarfile.open(path, "w:gz") as t:
         for name, data in files.items():
             info = tarfile.TarInfo(name)
@@ -101,6 +102,7 @@ def test_server_archive_includes_optional_score_delivery_worker(tmp_path):
     stage.mkdir()
     assert deployment.unpack(archive, stage, digest)["version"] == "test"
     assert (stage / "score_delivery.py").is_file()
+    assert (stage / "install_score_service.py").is_file()
     root = tmp_path / "project"
     root.mkdir()
     deployment.install_score_worker(root, stage)

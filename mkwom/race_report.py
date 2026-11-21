@@ -7,7 +7,7 @@ No external network calls, changes to game files or server control.
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 from pathlib import Path
 import re

@@ -7,8 +7,8 @@ This does NOT replace native/server-side account authentication.
 import re
 from pathlib import Path
 
-from .cli import COMMUNITY_ENDPOINT
-from .installer import atom
+from .cli import channel_endpoint
+from .installer import atom, read_json
 
 
 def _set_section_value(lines: list[str], section: str, key: str, value: str) -> None:
@@ -45,7 +45,8 @@ def persist_online_settings(game: Path) -> None:
     Called only after the authenticated patch install/update succeeds.
     This deliberately does not persist credentials or imply game-server auth.
     """
-    address = COMMUNITY_ENDPOINT
+    settings = read_json(game / ".mkwom" / "settings.json", {})
+    address = channel_endpoint(settings.get("channel", "release"))
     path = game / "mkw.ini"
     original = path.read_bytes() if path.exists() else b""
     # Respect the game's existing Windows newline style and UTF-8 BOM.

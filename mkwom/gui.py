@@ -56,7 +56,7 @@ def installed_version(folder: Path) -> str | None:
 class Launcher:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("MKWOM | Multiplayer")
+        self.root.title("Mario Kart World: Online Multiplayer")
         self.root.geometry("730x650")
         self.root.minsize(660, 600)
         self.root.configure(background=COLORS["bg"])
@@ -98,7 +98,7 @@ class Launcher:
         outer.pack(fill="both", expand=True)
         tk.Label(outer, text="MKWOM", font=("Segoe UI", 28, "bold"), fg=COLORS["accent"],
                  bg=COLORS["bg"]).pack(anchor="w")
-        tk.Label(outer, text="Mario Kart World Online Multiplayer", font=("Segoe UI", 11),
+        tk.Label(outer, text="Mario Kart World: Online Multiplayer", font=("Segoe UI", 11),
                  fg=COLORS["muted"], bg=COLORS["bg"]).pack(anchor="w", pady=(0, 18))
         panel = tk.Frame(outer, bg=COLORS["panel"], padx=16, pady=15)
         panel.pack(fill="x")
@@ -137,12 +137,8 @@ class Launcher:
         self.channels = ttk.Combobox(line, values=("beta", "release"), state="readonly",
                                      textvariable=self.channel, width=13)
         self.channels.grid(row=0, column=1, padx=(12, 0), sticky="w")
-        ttk.Label(line, text="Official STRATO multiplayer server").grid(row=1, column=0, sticky="w", pady=(12, 0))
-        self.server = ttk.Entry(line, textvariable=self.endpoint, width=35, state="disabled")
-        self.server.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(12, 0))
         line.columnconfigure(1, weight=1)
-        self.save = ttk.Button(line, text="Official server", state="disabled")
-        self.save.grid(row=1, column=2, padx=(8, 0), pady=(12, 0))
+        self.save = ttk.Button(line, text="Save settings", state="disabled")
         account_box = ttk.LabelFrame(outer, text="MKWOM Online Account")
         account_box.pack(fill="x", pady=(10, 0))
         account = tk.Frame(account_box, padx=12, pady=8)

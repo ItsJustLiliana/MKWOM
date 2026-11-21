@@ -16,6 +16,7 @@ def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path
     variables = {
         b"MKWOM_GAME_TICKET_KEY": b"a" * 64,
         b"MKWOM_ACCOUNT_ENFORCE": b"1",
+        b"MKWOM_REQUIRE_SCOPED_TICKETS": b"1",
     }
     original_read_bytes = Path.read_bytes
 
@@ -63,4 +64,8 @@ def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path
     inactive.clear()
     del variables[b"MKWOM_GAME_TICKET_KEY"]
     with pytest.raises(RuntimeError, match="ticket key"):
+        readiness.check_release_ready(root)
+    variables[b"MKWOM_GAME_TICKET_KEY"] = b"a" * 64
+    variables[b"MKWOM_REQUIRE_SCOPED_TICKETS"] = b"0"
+    with pytest.raises(RuntimeError, match="Signed Beta/Release"):
         readiness.check_release_ready(root)

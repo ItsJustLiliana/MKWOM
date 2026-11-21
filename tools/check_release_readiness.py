@@ -3,7 +3,6 @@
 Run as the deployed mkwom Unix user on the STRATO server. Print no secrets.
 Requires an initialized single server and both channel delivery services.
 """
-import os
 from pathlib import Path
 import re
 import subprocess

@@ -17910,7 +17910,7 @@ index 0000000..fb8f922
 +        }
 +    }
 +    char response[100];
-+    int n = snprintf(response, sizeof response, "{\\"id\\":\\"%s\\",\\"ok\\":%s}\n",
++    int n = snprintf(response, sizeof response, "{\"id\":\"%s\",\"ok\":%s}\n",
 +                     id, ok ? "true" : "false");
 +    if (n > 0 && (size_t)n < sizeof response) plat_file_write_atomic(ack, response, (size_t)n);
 +    srv_log("Lakitu native command %s channel=%s accepted=%d", op, channel, ok);

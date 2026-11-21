@@ -1,6 +1,5 @@
 """Release channel must fail closed if native/game/score services are misconfigured."""
 from pathlib import Path
-import subprocess
 
 import pytest
 

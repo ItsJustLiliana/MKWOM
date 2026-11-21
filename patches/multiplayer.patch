@@ -17533,7 +17533,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1373 @@
+@@ -0,0 +1,1376 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -18207,6 +18207,7 @@ index 0000000..fb8f922
 +    PbOut o = {0};
 +    if (!s || !*uid || strcmp(s->tenant, tenant) ||
 +        strcmp(s->channel, srv_player_channel(uid))) {
++        srv_log("friend join rejected: lobby not found or wrong tenant/channel");
 +        srv_call_end(c, ST_FAILED_PRECONDITION, "requested lobby is unavailable");
 +        return;
 +    }
@@ -18223,6 +18224,7 @@ index 0000000..fb8f922
 +        m->seq = ++member_seq;
 +    } else {
 +        if (!s->room && !session_accepting(s)) {
++            srv_log("friend join rejected: game lobby is not accepting backfill");
 +            srv_call_end(c, ST_FAILED_PRECONDITION, "lobby is not accepting players");
 +            return;
 +        }
@@ -18243,6 +18245,7 @@ index 0000000..fb8f922
 +                                                                     : NULL;
 +        if (why || s->closed || s->admin_locked || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
 +            map_free(&attrs);
++            srv_log("friend join rejected: incompatible build/version or lobby full/closed");
 +            srv_call_end(c, why ? ST_FAILED_PRECONDITION : ST_RESOURCE_EXHAUSTED, why ? why : "room full or closed");
 +            return;
 +        }

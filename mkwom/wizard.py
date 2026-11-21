@@ -195,6 +195,13 @@ class SetupWizard:
         if hasattr(self, "next") and not self.complete:
             self._update_continue_state()
 
+    @staticmethod
+    def _has_saved_login() -> bool:
+        try:
+            return bool(token())
+        except (OSError, RuntimeError, ValueError):
+            return False
+
     def can_continue(self) -> bool:
         """UI gating; advance and account service still revalidate every action."""
         if self.busy or self.complete:
@@ -207,12 +214,12 @@ class SetupWizard:
         if self.step == 2:
             return self.channel.get() in ("beta", "release")
         if self.step == 3:
-            return bool(self.username.get().strip() and self.password.get()) or bool(token())
+            return bool(self.username.get().strip() and self.password.get()) or self._has_saved_login()
         if self.step == 4:
             value = self.game.get().strip().strip('"')
             return (bool(value) and valid_game_folder(Path(value).expanduser())
                     and self.channel.get() in ("beta", "release")
-                    and bool(self.username.get().strip() or token()))
+                    and bool(self.username.get().strip() or self._has_saved_login()))
         return False
 
     def _update_continue_state(self):
@@ -226,7 +233,7 @@ class SetupWizard:
         """A blue-square radio choice with a white drawn tick, no platform glyph."""
         selected = variable.get() == value
         bg = "#222b3d" if selected else "#202632"
-        frame = tk.Frame(self.body, bg=bg, cursor="hand2", padx=14, pady=12,
+        frame = tk.Frame(self.body, bg=bg, cursor="hand2", takefocus=1, padx=14, pady=12,
                          highlightthickness=1, highlightbackground=BLUE if selected else "#364153")
         frame.pack(fill="x", pady=6)
         mark = tk.Canvas(frame, width=25, height=25, bg=bg, highlightthickness=0)
@@ -244,6 +251,8 @@ class SetupWizard:
         description.pack(anchor="w", pady=(3, 0))
         for element in (frame, mark, info, headline, description):
             element.bind("<Button-1>", lambda _event, choice=value: (variable.set(choice), self.show_step()))
+        for key in ("<Return>", "<space>"):
+            frame.bind(key, lambda _event, choice=value: (variable.set(choice), self.show_step()))
 
     def open_launcher(self):
         """Launch game after installation and close setup only if launch succeeds."""
@@ -291,6 +300,7 @@ class SetupWizard:
                      "Do not close the patcher during installation or removal.")
         self.heading.configure(text=titles[self.step])
         self.subtitle.configure(text=subtitles[self.step])
+        self.back.configure(text="Back", command=self.previous, bg="#252b36", fg=TEXT)
         self.next.configure(text="Uninstall" if self.step == 1 and self.action.get() == "uninstall" else "Install" if self.step == 4 else "Continue  →",
                             command=self.advance)
         if self.step == 0:

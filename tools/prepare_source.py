@@ -27,6 +27,11 @@ def prepare(out: Path):
     guard = str(ROOT / "patches/online-cheat-guard.patch")
     subprocess.run(["git", "-C", str(out), "apply", "--check", guard], check=True)
     subprocess.run(["git", "-C", str(out), "apply", guard], check=True)
+    # Channel-isolated UDP listeners and ICE advertisement are layered on the
+    # pinned upstream integration; keep the large original diff unchanged.
+    isolated = str(ROOT / "patches/isolated-udp.patch")
+    subprocess.run(["git", "-C", str(out), "apply", "--check", isolated], check=True)
+    subprocess.run(["git", "-C", str(out), "apply", isolated], check=True)
 
 
 if __name__ == "__main__":

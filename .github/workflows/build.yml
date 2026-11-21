@@ -36,7 +36,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: build/source/build/win
-          key: win-${{ hashFiles('compatibility.json', 'patches/multiplayer.patch', 'patches/online-cheat-guard.patch') }}
+          key: win-${{ hashFiles('compatibility.json', 'patches/multiplayer.patch', 'patches/online-cheat-guard.patch', 'patches/isolated-udp.patch') }}
           restore-keys: win-
       - name: Build and round-trip official runtime
         env:
@@ -57,6 +57,8 @@ jobs:
       - run: uv run --project build/source python build/source/tools/build/server.py --jobs 2
       - name: Real server protocol regressions
         run: MKW_SRV_EXE="$PWD/build/source/build/server/mkw-server" uv run --project build/source --group dev pytest build/source/tests/runtime/test_srv.py -n 0 -q
+      - name: Verify two simultaneous channel-isolated native server instances
+        run: MKW_SRV_EXE="$PWD/build/source/build/server/mkw-server" uv run --project build/source --group dev pytest tests/test_native_udp_channels.py -q
       - name: Package server
         env:
           BUILD_VERSION: 0.1.0-${{ github.sha }}

@@ -135,6 +135,28 @@ def launch(game: Path):
     print("Started MKWOM.")
 
 
+
+def launch_offline(game: Path):
+    """Start the existing Recomp runtime without touching network or MKWOM credentials.
+
+    This is the recovery path after a failed account/update request. Never erase
+    the saved account or patch, and never enable multiplayer in this process.
+    Normal standalone singleplayer mods remain available.
+    """
+    game = game.resolve()
+    if not (game / "mkw.exe").is_file():
+        raise ValueError("The game folder no longer contains mkw.exe")
+    game_closed()
+    env = dict(os.environ)
+    env.update(MKW_ONLINE="0", MKW_SERVER_HOST="0", MKWOM_MANAGED="1",
+               MKW_UPDATE_CHECK="0")
+    # The port's config resolves environment overrides before mkw.ini; offline
+    # wins even when the installed MKWOM INI defaults to ONLINE=1.
+    subprocess.Popen([str(game / "mkw.exe"), "--launcher"], cwd=game, env=env)
+    print("Started Recomp offline. Online matchmaking and score submissions are disabled.")
+
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="MKWOM patch manager for supported Windows recomp builds")
     p.add_argument("--game", type=Path, help="runtime folder containing mkw.exe")

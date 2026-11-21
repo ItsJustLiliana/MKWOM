@@ -95,7 +95,26 @@ def snapshot() -> dict:
             capacity = dict(zip(names, map(int, found.groups())))
             break
 
-    warnings = ["Native per-lobby/player telemetry is not installed; management actions are unavailable."]
+    native = None
+    native_path = ROOT / "server/lakitu-native.json"
+    try:
+        # The native process atomically replaces this file on its own event loop.
+        # Stale or corrupted snapshots are never represented as live sessions.
+        if time.time() - native_path.stat().st_mtime <= 5:
+            value = json.loads(native_path.read_text(encoding="utf-8"))
+            if (isinstance(value, dict) and value.get("schema_version") == 1
+                    and isinstance(value.get("lobbies"), list)
+                    and isinstance(value.get("players"), list)
+                    and isinstance(value.get("limits"), dict)
+                    and abs(time.time() - value.get("observed_at", 0)) <= 10):
+                native = value
+    except (OSError, ValueError, TypeError):
+        pass
+
+    warnings = ["Native administrative controls are not installed; actions remain unavailable."]
+    if native is None:
+        warnings.append("Fresh native lobby/player telemetry is unavailable.")
+
     if not running:
         warnings.insert(0, "Native lobby process is not active.")
     return {
@@ -106,9 +125,10 @@ def snapshot() -> dict:
             "memory_mb": round(mem, 1) if mem is not None else None,
             "native_capacity_last_reported": capacity,
         },
-        "warnings": warnings, "limits": {},
-        "lobbies": [], "players": [], "logs": [],
-        "telemetry_scope": "process-only", "observed_at": int(time.time()),
+        "warnings": warnings, "limits": native["limits"] if native else {},
+        "lobbies": native["lobbies"] if native else [],
+        "players": native["players"] if native else [], "logs": [],
+        "telemetry_scope": "native-read-only" if native else "process-only", "observed_at": int(time.time()),
     }
 
 

@@ -13570,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,538 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13905,6 +13905,9 @@ index 0000000..721d8cb
 +    char copy[256];
 +    snprintf(copy, sizeof copy, "%s", ticket);
 +    int scoped = !strncmp(ticket, "v2.", 3);
++    // Production can require the server-verified channel on every ticket.
++    if (!scoped && getenv("MKWOM_REQUIRE_SCOPED_TICKETS") &&
++        !strcmp(getenv("MKWOM_REQUIRE_SCOPED_TICKETS"), "1")) return 0;
 +    int fields = scoped ? 7 : 6;
 +    int code_idx = scoped ? 3 : 2, expiry_idx = scoped ? 4 : 3;
 +    int nonce_idx = scoped ? 5 : 4, sig_idx = scoped ? 6 : 5;

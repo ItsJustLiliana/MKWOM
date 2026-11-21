@@ -6,6 +6,7 @@ Requires an initialized single server and both channel delivery services.
 from pathlib import Path
 import re
 import subprocess
+import urllib.error
 import urllib.request
 
 ROOT = Path("/home/mkwom/projects/MKWOM-server")
@@ -60,6 +61,19 @@ def check_release_ready(root: Path = ROOT) -> None:
                 raise RuntimeError("Account API returned unhealthy HTTP status")
     except OSError as exc:
         raise RuntimeError("Local account API is not reachable") from exc
+    # No private user tokens are needed: an installed protected scores route
+    # must reject an anonymous request with 401, not fall through to 404.
+    for channel in ("beta", "release"):
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:9081/scores?channel={channel}", timeout=4)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 401:
+                raise RuntimeError(f"Account API lacks protected {channel} scores route") from exc
+        except OSError as exc:
+            raise RuntimeError("Account API score-route probe failed") from exc
+        else:
+            raise RuntimeError("Account API score-route was accessible without login")
 
 
 if __name__ == "__main__":

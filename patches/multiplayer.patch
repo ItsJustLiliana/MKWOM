@@ -17494,7 +17494,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,1124 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17833,7 +17833,8 @@ index 0000000..fb8f922
 +
 +static SrvSession *session_of(SrvCall *c, const uint8_t *msg, size_t len) {
 +    SrvSession *s = session_named(msg, len);
-+    return s ? s : srv_session_recent(srv_call_uid(c));
++    if (!s) s = srv_session_recent(srv_call_uid(c));
++    return s && !strcmp(s->channel, srv_player_channel(srv_call_uid(c))) ? s : NULL;
 +}
 +
 +// ---- rooms: CreateGameSessionCreationTicket {1: parent, 2: CreationTicket {2: config, 3: TicketMember (the host),
@@ -17934,7 +17935,8 @@ index 0000000..fb8f922
 +    // for certain session queries but sends friend joins to stale lobbies.
 +    SrvSession *s = session_named(msg, len);
 +    PbOut o = {0};
-+    if (!s || !*uid || strcmp(s->tenant, tenant)) {
++    if (!s || !*uid || strcmp(s->tenant, tenant) ||
++        strcmp(s->channel, srv_player_channel(uid))) {
 +        srv_call_end(c, ST_FAILED_PRECONDITION, "requested lobby is unavailable");
 +        return;
 +    }
@@ -18010,7 +18012,8 @@ index 0000000..fb8f922
 +        memcpy(name, field.data, field.len);
 +        name[field.len] = 0;
 +        SrvSession *s = srv_session_find(last_seg(name));
-+        if (s && !strcmp(s->tenant, tenant) && !s->closed) put_session(&out, 1, s);
++        if (s && !strcmp(s->tenant, tenant) && !s->closed &&
++            !strcmp(s->channel, srv_player_channel(srv_call_uid(c)))) put_session(&out, 1, s);
 +        n++;
 +    }
 +    reply(c, &out);
@@ -18064,7 +18067,8 @@ index 0000000..fb8f922
 +        if (!isspace((unsigned char)*p)) typed[n++] = *p;
 +    typed[n] = 0;
 +    const SrvSession *s = n ? by_alias(typed) : NULL;
-+    if (!s) srv_call_end(c, ST_NOT_FOUND, "no room with that ID");
++    if (!s || strcmp(s->channel, srv_player_channel(srv_call_uid(c))))
++        srv_call_end(c, ST_NOT_FOUND, "no room with that ID");
 +    else alias_reply(c, s);
 +}
 +

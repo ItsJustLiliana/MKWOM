@@ -25,7 +25,7 @@ if not re.fullmatch(r"[0-9]+", os.environ["LOBBY_PORT"]):
 # TCP/UDP namespace. Pre-beta has no deployment target at all.
 stage = os.environ.get("DEPLOY_STAGE", "")
 targets = {
-    "beta": ("/home/mkwom/projects/MKWOM-server-beta", "mkw-lobby-beta.service", "19443"),
+    "beta": ("/home/mkwom/projects/MKWOM-beta", "mkw-lobby-beta.service", "19443"),
     "release": ("/home/mkwom/projects/MKWOM-server", "mkw-lobby.service", "18443"),
 }
 if stage not in targets:

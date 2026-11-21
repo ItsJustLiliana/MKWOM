@@ -196,6 +196,13 @@ def main(argv=None):
     conf.add_argument("--endpoint", type=endpoint, required=True)
     sub.add_parser("uninstall")
     sub.add_parser("status")
+    report = sub.add_parser("race-report", help="export a private race connection report (no network access)")
+    report.add_argument("--client-log", type=Path, action="append", default=[],
+                        help="client mkw.log (can be repeated)")
+    report.add_argument("--server-log", type=Path, action="append", default=[],
+                        help="exported STRATO journal/server log (can be repeated)")
+    report.add_argument("--output", type=Path, help="output basename; generates .md and .json")
+    report.add_argument("--year", type=int, help="year for syslog timestamps without a year")
     a = p.parse_args(argv)
     try:
         if not a.game:
@@ -220,6 +227,17 @@ def main(argv=None):
             settings["endpoint_mode"] = "channel"
             json_write(game / ".mkwom/settings.json", settings)
             print("Official MKWOM STRATO server configured.")
+        elif a.command == "race-report":
+            from .race_report import build_report, write_report
+            import datetime
+            paths = list(a.client_log)
+            if not paths:
+                paths = [path for path in (game / "mkw.log", game / "logs" / "mkw.log", game / ".mkwom" / "mkw.log")
+                         if path.is_file()]
+            destination = a.output or game / ".mkwom" / "reports" / "race-connection-report"
+            result = build_report(paths, a.server_log, reference_year=a.year or datetime.datetime.now().year)
+            json_file, markdown_file = write_report(result, destination)
+            print(f"Race Connection Report generated:\n{markdown_file}\n{json_file}")
         elif a.command == "status":
             state = read_json(game / ".mkwom/installed.json", {})
             print(json.dumps({"patch": state.get("version"), "upstream": state.get("upstream"),

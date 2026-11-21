@@ -15952,7 +15952,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,381 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -16293,6 +16293,15 @@ index 0000000..de6177a
 +            }
 +        }
 +        srv_session_tick(srv_ms());
++        // Apply scoped admin disconnects only after normal connection iteration.
++        // srv_conn_free invokes each Gamesync close handler before sessions
++        // can be removed, preserving callback ownership.
++        for (int i = 0; i < nconns; i++) {
++            if (!conns[i].c || !srv_conn_admin_kicked(conns[i].c)) continue;
++            srv_conn_free(conns[i].c);
++            conns[i].c = NULL;
++        }
++        srv_session_admin_clear_kicks();
 +        // Replies one player's call queued for another's connection (a write sent to every listener) go out now, not
 +        // after the next poll: a few rounds, since stepping a connection may queue more.
 +        for (int round = 0, again = 1; again && round < 4; round++) {

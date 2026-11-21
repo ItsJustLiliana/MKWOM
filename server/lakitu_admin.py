@@ -14,7 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Body
+from .lakitu_controls import send as native_send
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="MKWOM Lakitu Observer", docs_url=None, redoc_url=None, openapi_url=None)
@@ -111,7 +112,7 @@ def snapshot() -> dict:
     except (OSError, ValueError, TypeError):
         pass
 
-    warnings = ["Native administrative controls are not installed; actions remain unavailable."]
+    warnings = []
     if native is None:
         warnings.append("Fresh native lobby/player telemetry is unavailable.")
 
@@ -121,7 +122,7 @@ def snapshot() -> dict:
         "schema_version": 1, "server_name": "MKWOM / STRATO",
         "server_version": version, "generation": None,
         "uptime_seconds": uptime, "status": "healthy" if running else "offline",
-        "capabilities": [], "metrics": {
+        "capabilities": (["limits.write", "lobby.lock", "lobby.unlock", "lobby.drain"] if native is not None and running else []), "metrics": {
             "memory_mb": round(mem, 1) if mem is not None else None,
             "native_capacity_last_reported": capacity,
         },

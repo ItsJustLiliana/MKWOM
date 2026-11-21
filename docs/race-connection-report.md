@@ -2,6 +2,16 @@
 
 MKWOM can turn the existing race diagnostics in `mkw.log` and an optional exported STRATO journal into a **single, privacy-safe timeline**. The report classifies log evidence; it does not change networking or guarantee which event caused a disconnect.
 
+## One-click report in the Setup GUI
+
+Open the **new MKWOM Setup EXE** and select the existing game folder.
+On the first **Game folder** screen, click **Export Race Connection Report**.
+You can also use the same button on the successful installation screen.
+
+The wizard uses the detected `mkw.log`, or asks where it is if the log is
+elsewhere. It optionally lets you select a previously exported STRATO journal.
+No login, reinstallation or game modification is performed by this button.
+
 ## Create a report on Windows
 
 1. In the MKWOM / Recomp launcher, open **Online → Race connection diagnostics** and enable **Log race connection issues**. Restart via **Play** and reproduce the issue.

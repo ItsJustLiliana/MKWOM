@@ -18,7 +18,7 @@ Inspect the script and verify that `/home/mkwom/projects/MKWOM/server/lakitu_adm
 mkdir -p ~/.config/mkwom
 chmod 700 ~/.config/mkwom
 umask 077
-python3 -c 'import secrets; from pathlib import Path; p=Path.home()/".config/mkwom/lakitu-admin.token"; assert not p.exists(), "token already exists"; p.write_text(secrets.token_urlsafe(48)+"\\n")'
+python3 -c 'import secrets; from pathlib import Path; p=Path.home()/".config/mkwom/lakitu-admin.token"; assert not p.exists(), "token already exists"; p.write_text(secrets.token_urlsafe(48))'
 chmod 600 ~/.config/mkwom/lakitu-admin.token
 
 mkdir -p ~/.config/systemd/user

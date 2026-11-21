@@ -38,7 +38,9 @@ def authorize(authorization: str | None) -> None:
         raise HTTPException(401, "Administrator authentication required")
     try:
         stat = TOKEN_FILE.stat()
-        if stat.st_mode & 0o077:
+        # POSIX mode bits are meaningful on the STRATO Linux server only.
+        # Windows CI uses ACLs and chmod(0600) cannot reproduce Unix modes.
+        if os.name == "posix" and stat.st_mode & 0o077:
             raise RuntimeError("token file permissions must be 0600")
         secret = TOKEN_FILE.read_text(encoding="utf-8").strip()
     except (OSError, RuntimeError):

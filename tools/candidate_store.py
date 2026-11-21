@@ -52,7 +52,13 @@ def download_queued_candidate(tag: str, destination: Path) -> None:
     receipt_dir.mkdir(exist_ok=True)
     subprocess.run(["gh", "run", "download", str(run_id), "--name", "strato-queue-receipt",
                     "--dir", str(receipt_dir)], check=True)
-    receipt = json.loads((receipt_dir / "queued-strato.json").read_text(encoding="utf-8"))
+    receipt_text = (receipt_dir / "queued-strato.json").read_text(encoding="utf-8")
+    # Earlier CI runs appended a literal backslash-n, not a newline.
+    # Accept only this exact legacy suffix. Keep the strict JSON structure
+    # and candidate identity checks below; never accept arbitrary trailing data.
+    if receipt_text.endswith(r"\\n"):
+        receipt_text = receipt_text[:-2]
+    receipt = json.loads(receipt_text)
     if receipt != {"format": 1, "target": "strato", "candidate": tag}:
         raise ValueError("Candidate missing matching STRATO queue acceptance receipt")
     info = json.loads((destination / "build-info.json").read_text(encoding="utf-8"))

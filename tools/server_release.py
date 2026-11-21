@@ -24,6 +24,7 @@ def main():
         with tarfile.open(out / "mkwom-server-linux-x64.tar.gz", "w:gz") as archive:
             archive.add(exe, arcname="mkw-server")
             archive.add(ROOT / "tools/score_delivery.py", arcname="score_delivery.py")
+            archive.add(ROOT / "tools/install_score_service.py", arcname="install_score_service.py")
             archive.add(metadata, arcname="release.json")
             for name in ("LICENSE", "NOTICE.md"):
                 archive.add(ROOT / name, arcname=name)

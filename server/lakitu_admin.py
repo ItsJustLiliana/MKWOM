@@ -145,6 +145,28 @@ def health():
     return {"status": "up"}
 
 
+@app.put("/v1/limits/{channel}")
+def set_lobby_cap(channel: str, body: dict = Body(...),
+                  authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if set(body) != {"max_lobbies"} or type(body["max_lobbies"]) is not int:
+        raise HTTPException(422, "max_lobbies must be an integer")
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, "cap", channel, str(body["max_lobbies"]), enabled)
+
+
+@app.post("/v1/lobbies/{channel}/{lobby_id}/{action}")
+def change_lobby(channel: str, lobby_id: str, action: str,
+                 authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if action not in ("lock", "unlock", "drain"):
+        raise HTTPException(422, "Unsupported lobby operation")
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, action, channel, lobby_id, enabled)
+
+
 @app.api_route("/v1/{path:path}", methods=["POST", "PUT", "PATCH", "DELETE"])
 def unsupported(path: str, authorization: str | None = Header(default=None)):
     authorize(authorization)

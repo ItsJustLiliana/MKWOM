@@ -131,7 +131,8 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          grep '  mkwom-server-linux-x64.tar.gz      - name: Configure pinned STRATO SSH key
+          grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
+      - name: Configure pinned STRATO SSH key
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
@@ -141,8 +142,8 @@ jobs:
           test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
           mkdir -p "$RUNNER_TEMP/mkwom-ssh"
           chmod 700 "$RUNNER_TEMP/mkwom-ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          printf '%s\\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
           chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
       - name: Store candidate in STRATO pending queue
         env:
@@ -154,7 +155,7 @@ jobs:
         env:
           CANDIDATE: ${{ needs.publish.outputs.tag }}
         run: |
-          printf '{"format":1,"target":"strato","candidate":"%s"}\n' "$CANDIDATE" > dist/queued-strato.json
+          printf '{"format":1,"target":"strato","candidate":"%s"}\\n' "$CANDIDATE" > dist/queued-strato.json
       - uses: actions/upload-artifact@v7
         with:
           name: strato-queue-receipt
@@ -174,30 +175,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/cleanup_prebeta_releases.py
- SHA256SUMS | sha256sum --check --strict -
-      - name: Configure pinned STRATO SSH key
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
-          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
-          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
-          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
-          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
-          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
-      - name: Store candidate in STRATO pending queue
-        env:
-          CANDIDATE: ${{ needs.publish.outputs.tag }}
-          DEPLOY_SSH_KEY_PATH: ${{ runner.temp }}/mkwom-ssh/id_ed25519
-          DEPLOY_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/mkwom-ssh/known_hosts
-        run: python3 tools/queue_strato.py
-      - name: Mark candidate as queued
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE: ${{ needs.publish.outputs.tag }}
-        run: |
-          printf '{"format":1,"target":"strato","candidate":"%s"}\n' "$CANDIDATE" > dist/queued-strato.json
-          gh release upload "$CANDIDATE" dist/queued-strato.json

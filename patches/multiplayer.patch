@@ -8610,7 +8610,7 @@ new file mode 100644
 index 0000000..9ef7855
 --- /dev/null
 +++ b/runtime/sdk/ov/net_host.c
-@@ -0,0 +1,558 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// This PC's networks and its own online server, started by mkw (net_online.h).
 +//
@@ -9174,7 +9174,7 @@ new file mode 100644
 index 0000000..e989fd6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_invite.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,1 @@
 +// Server routing invites for private networks: no directory service, account secret or room state is encoded.
 +// The checksum catches typing mistakes; it is not authentication. Access is controlled by the VPN and firewall.
 +#pragma once
@@ -9251,7 +9251,7 @@ new file mode 100644
 index 0000000..21d66b7
 --- /dev/null
 +++ b/runtime/sdk/ov/net_listen.h
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// When this PC's server should listen again (net_host.c net_host_listen_changed): the addresses of the network choice
 +// differ from the ones it listens on, and for good. An address added counts once it has stayed NET_LISTEN_ADD_MS, one
@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1035 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -10347,7 +10347,7 @@ new file mode 100644
 index 0000000..48e9bb6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.h
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server that speaks the game's online protocol (the one built into mkw, runtime/srv, or
 +// another): the settings, this player's friend code, the server's certificate and its friends API. Shared by the
@@ -12945,7 +12945,7 @@ new file mode 100644
 index 0000000..91e1aa7
 --- /dev/null
 +++ b/runtime/srv/README.md
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,1 @@
 +# runtime/srv
 +
 +The online server built into the executable, which the Online page hosts: written from a description of the protocol
@@ -13005,7 +13005,7 @@ new file mode 100644
 index 0000000..92bfe66
 --- /dev/null
 +++ b/runtime/srv/srv.h
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server built into the executable: `mkw.exe --server [--host ADDR]... [--port P] [--data DIR]
 +// [--seconds S]`, a process of its own (the start screen or the game starts it, and it ends with them), so a fault in it
@@ -13027,11 +13027,6 @@ index 0000000..92bfe66
 +#include <stdint.h>
 +uint64_t srv_ms(void);
 +const char *srv_data_dir(void);
-+// Local control: presence of <data>/drain rejects NEW lobby admissions only.
-+// Existing Gamesync streams and final result messages continue unchanged.
-+int srv_draining(void);
-+// Configured native UDP listeners: STUN1/STUN2/NAT1/NAT2/NAT3.
-+int srv_udp_port(size_t index);
 +// Cryptographically random bytes (ids, room numbers, tokens); 1 on success.
 +int srv_random(void *buf, size_t n);
 diff --git a/runtime/srv/srv_api.c b/runtime/srv/srv_api.c
@@ -13039,7 +13034,7 @@ new file mode 100644
 index 0000000..ed8285b
 --- /dev/null
 +++ b/runtime/srv/srv_api.c
-@@ -0,0 +1,507 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The friends API (srv_api.h), as the protocol description's "Friends HTTPS API" says: TLS 1.2+, HTTP/1.1 with
 +// keep-alive, one request at a time, JSON replies whose arrays hold flat objects with the player's own "name" before
@@ -13552,7 +13547,7 @@ new file mode 100644
 index 0000000..b39bd69
 --- /dev/null
 +++ b/runtime/srv/srv_api.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The friends API next to the game's port (gRPC port + 1, 8444): HTTPS/1.1 for our runtime's Online page, not for the
 +// game. GET /v1/ca.der (the CA, no check), GET /v1/friends, POST /v1/friends/<request|accept|decline|cancel|remove>.
@@ -13575,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,533 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -14114,7 +14109,7 @@ new file mode 100644
 index 0000000..fd554d9
 --- /dev/null
 +++ b/runtime/srv/srv_auth.h
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in (Auth/IssuePrearrangedUserToken) and the bearer tokens it hands out: HMAC-SHA256-signed with a key made on
 +// this PC (<data>/token.key), so a token cannot be forged and stays valid when the server starts again.
@@ -14141,7 +14136,7 @@ new file mode 100644
 index 0000000..9a9d4b9
 --- /dev/null
 +++ b/runtime/srv/srv_docs.c
-@@ -0,0 +1,465 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// A game session's Gamesync documents (srv_docs.h).
 +#include "srv_docs.h"
@@ -14612,7 +14607,7 @@ new file mode 100644
 index 0000000..ec5ccda
 --- /dev/null
 +++ b/runtime/srv/srv_docs.h
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// A game session's Gamesync documents (the protocol description, "Gamesync"): paths with fields (srv_value.h), the
 +// writes the game sends (Update with a field mask, Set, Delete, Transform and its session counters) and the results it
@@ -14698,7 +14693,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,690 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15164,29 +15159,6 @@ index 0000000..7cc41f7
 +        docs_rollback(&s->docs);
 +        return st;
 +    }
-+    // Existing rooms may continue their in-progress race during drain, but
-+    // cannot submit a first request for another race after the cutover.
-+    if (srv_draining()) {
-+        for (int i = from; i < s->docs.nchanged; i++) {
-+            const char *path = s->docs.changed[i];
-+            if (strncmp(path, "@@RefereeRequest/", 17)) continue;
-+            const char *req = strstr(path, "/Request/");
-+            if (!req || !req[9]) continue;
-+            req += 9;
-+            int already_started = 0;
-+            for (int j = 0; j < RACES_MAX; j++)
-+                if (s->referee.races[j].used && !strcmp(s->referee.races[j].request_id, req))
-+                    already_started = 1;
-+            // A Knockout Tour is one competition. Its next section must not
-+            // be mistaken for an unrelated new race during drain.
-+            if (!already_started && referee_admitted_competition(&s->referee, req))
-+                already_started = 1;
-+            if (!already_started) {
-+                docs_rollback(&s->docs);
-+                return ST_UNAVAILABLE;
-+            }
-+        }
-+    }
 +    if ((st = docs_end(&s->docs, now)) != ST_OK) return st;
 +    referee_batch(&s->referee, &s->docs, from, srv_ms(), now);
 +    // Do not acknowledge a finished race until the per-generation outbox
@@ -15394,7 +15366,7 @@ new file mode 100644
 index 0000000..1a45439
 --- /dev/null
 +++ b/runtime/srv/srv_h2.c
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection (srv_h2.h): TLS with Mbed TLS over a non-blocking socket, HTTP/2 with nghttp2 fed from
 +// memory (no socket of its own), and gRPC calls on its streams, handed to the services of srv_methods.c (srv_svc.h).
@@ -15916,7 +15888,7 @@ new file mode 100644
 index 0000000..34af20a
 --- /dev/null
 +++ b/runtime/srv/srv_h2.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection to the online server's gRPC port: TLS (srv_tls.h), HTTP/2 (nghttp2) and gRPC calls on it.
 +// Run from the server's single poll loop: srv_conn_step does what the socket allows and never waits.
@@ -15947,7 +15919,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -15976,26 +15948,9 @@ index 0000000..de6177a
 +
 +enum { MAX_HOSTS = 8, MAX_LISTEN = 64, MAX_CONNS = 256, MAX_PER_IP = 16, LOG_MAX = 2 << 20 };
 +enum { K_STUN, K_NAT, K_GRPC, K_API };
-+static struct {
++static const struct {
 +    int port, kind;
 +} UDP_PORTS[] = {{3478, K_STUN}, {3479, K_STUN}, {10025, K_NAT}, {10125, K_NAT}, {33334, K_NAT}};
-+
-+int srv_udp_port(size_t index) {
-+    return index < sizeof UDP_PORTS / sizeof *UDP_PORTS ? UDP_PORTS[index].port : 0;
-+}
-+
-+static int parse_udp_ports(const char *value) {
-+    int proposed[5], used = 0;
-+    if (!value || sscanf(value, "%d,%d,%d,%d,%d%n",
-+                         &proposed[0], &proposed[1], &proposed[2],
-+                         &proposed[3], &proposed[4], &used) != 5 || value[used]) return 0;
-+    for (size_t i = 0; i < 5; i++) {
-+        if (proposed[i] < 1024 || proposed[i] > 65535) return 0;
-+        for (size_t j = 0; j < i; j++) if (proposed[j] == proposed[i]) return 0;
-+    }
-+    for (size_t i = 0; i < 5; i++) UDP_PORTS[i].port = proposed[i];
-+    return 1;
-+}
 +
 +typedef struct {
 +    Sock s;
@@ -16058,15 +16013,6 @@ index 0000000..de6177a
 +
 +static const char *data_dir = "online-server";
 +const char *srv_data_dir(void) { return data_dir; }
-+
-+int srv_draining(void) {
-+    char marker[1200];
-+    if (snprintf(marker, sizeof marker, "%s/drain", data_dir) >= (int)sizeof marker) return 1;
-+    FILE *f = fopen(marker, "rb");
-+    if (!f) return 0;
-+    fclose(f);
-+    return 1;
-+}
 +
 +int srv_random(void *buf, size_t n) { return plat_random(buf, n); }
 +
@@ -16221,12 +16167,10 @@ index 0000000..de6177a
 +            seconds = atoi(argv[++i]);
 +        } else if (!strcmp(argv[i], "--port") && v && atoi(v) > 0 && atoi(v) < 65534) {
 +            port = atoi(argv[++i]);
-+        } else if (!strcmp(argv[i], "--udp-ports") && v && parse_udp_ports(v)) {
-+            i++;
 +        } else if (!strcmp(argv[i], "--data") && v && *v) {
 +            data_dir = argv[++i];
 +        } else {
-+            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--udp-ports STUN1,STUN2,NAT1,NAT2,NAT3] [--data DIR] [--seconds S]  (at most %d "
++            fprintf(stderr, "usage: mkw --server [--host ADDR]... [--port P] [--data DIR] [--seconds S]  (at most %d "
 +                            "numeric addresses)\n", MAX_HOSTS);
 +            return 2;
 +        }
@@ -16257,7 +16201,7 @@ index 0000000..de6177a
 +        listen_on(hosts[h], port, 0, K_GRPC);
 +        listen_on(hosts[h], port + 1, 0, K_API);
 +        for (size_t k = 0; k < sizeof UDP_PORTS / sizeof *UDP_PORTS; k++) {
-+            if (k == 1 && *srv_setting("turn_host", "")) continue; // external coturn owns the relay port
++            if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", "")) continue; // external coturn owns this port
 +            listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
 +        }
 +    }
@@ -16272,9 +16216,7 @@ index 0000000..de6177a
 +    snprintf(pid_text, sizeof pid_text, "%lu", GetCurrentProcessId());
 +    plat_file_write_atomic(pid_path, pid_text, strlen(pid_text));
 +#endif
-+    srv_log("started: TCP %d/%d, UDP %d/%d/%d/%d/%d on %d address(es)", port, port + 1,
-+            UDP_PORTS[0].port, UDP_PORTS[1].port, UDP_PORTS[2].port,
-+            UDP_PORTS[3].port, UDP_PORTS[4].port, nhosts);
++    srv_log("started: port %d (friends API %d) on %d address(es)", port, port + 1, nhosts);
 +    time_t end = seconds ? time(NULL) + seconds : 0;
 +    static struct pollfd pf[MAX_LISTEN + MAX_CONNS];
 +    int code = 0;
@@ -16355,7 +16297,7 @@ new file mode 100644
 index 0000000..b274f18
 --- /dev/null
 +++ b/runtime/srv/srv_methods.c
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The methods the game calls that are not plain unary catch-alls (srv_svc.h): the services, and the stream kinds of the
 +// others (the wire does not say whether a method streams; the protocol description lists them).
@@ -16396,7 +16338,7 @@ new file mode 100644
 index 0000000..19cc58f
 --- /dev/null
 +++ b/runtime/srv/srv_net.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's sockets, the same code on Windows (Winsock) and elsewhere (BSD sockets).
 +#pragma once
@@ -16445,7 +16387,7 @@ new file mode 100644
 index 0000000..597ec51
 --- /dev/null
 +++ b/runtime/srv/srv_pb.c
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Protocol Buffers wire format (srv_pb.h).
 +#include "srv_pb.h"
@@ -16689,7 +16631,7 @@ new file mode 100644
 index 0000000..39bbabf
 --- /dev/null
 +++ b/runtime/srv/srv_pb.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Protocol Buffers wire format, read and written by hand: the online server (srv_*.c) has no .proto files for the
 +// game's messages, only their field numbers, so it walks fields and writes them one by one. Encoding as in
@@ -16758,7 +16700,7 @@ new file mode 100644
 index 0000000..da96a60
 --- /dev/null
 +++ b/runtime/srv/srv_presence.c
-@@ -0,0 +1,358 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.h), as the protocol description's "Presence and friends" says.
 +// Online: a stream open, or a call less than 120 s ago before any stream, or less than 15 s since the last stream
@@ -17122,7 +17064,7 @@ new file mode 100644
 index 0000000..e99ea2d
 --- /dev/null
 +++ b/runtime/srv/srv_presence.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.c): who is online (calls and open streams), the attributes each
 +// player's game publishes (PresenceService/KeepAlive), and the friend list and friends' presences streamed to each
@@ -17145,7 +17087,7 @@ new file mode 100644
 index 0000000..277e38c
 --- /dev/null
 +++ b/runtime/srv/srv_referee.c
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (srv_referee.h).
 +#include "srv_referee.h"
@@ -17205,18 +17147,6 @@ index 0000000..277e38c
 +    *section = (int)sec;
 +    snprintf(tour, cap, "Surv_%.*s_%.*s_%.*s_%s", (int)len[0], num[0], (int)len[1], num[1], (int)len[2], num[2], p);
 +    return 1;
-+}
-+
-+int referee_admitted_competition(const SrvReferee *r, const char *request_id) {
-+    char tour[128];
-+    int section = -1;
-+    if (!knockout_id(request_id, tour, sizeof tour, &section)) return 0;
-+    for (int i = 0; i < RACES_MAX; i++) {
-+        const SrvRace *prior = &r->races[i];
-+        if (prior->used && prior->section >= 0 && prior->section < section &&
-+            !strcmp(prior->tour, tour)) return 1;
-+    }
-+    return 0;
 +}
 +
 +static SrvRace *by_uuid(SrvReferee *r, const char *uuid) {
@@ -17503,7 +17433,7 @@ new file mode 100644
 index 0000000..a3fb79f
 --- /dev/null
 +++ b/runtime/srv/srv_referee.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (the protocol description, "Race referee"), entirely in a game session's Gamesync documents: a
 +// player's request document gets a result document (status 0) in the same batch, so every game sees within its 36 s
@@ -17544,8 +17474,6 @@ index 0000000..a3fb79f
 +// Races whose first report is RACE_GRACE_MS old are closed whoever is missing. Run after every batch, and by the
 +// session's timer (when everybody waits, nobody writes).
 +void referee_tick(SrvReferee *r, SrvDocs *d, uint64_t now_ms, int64_t now_s);
-+// Allow later sections of a Knockout Tour that started before drain, not a new tour.
-+int referee_admitted_competition(const SrvReferee *r, const char *request_id);
 +// Elo with K = 24 over every pair: rating[i] and rank[i] (lower is better, equal ranks draw) of n players, their new
 +// ratings in out.
 +void referee_elo(const double *rating, const double *rank, int n, double *out);
@@ -17554,7 +17482,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1161 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17599,33 +17527,6 @@ index 0000000..fb8f922
 +static int nsessions;
 +static Ticket tickets[TICKETS_MAX];
 +static unsigned next_gs, next_mt, next_gct, next_ice;
-+// A rolling deployment runs two native server processes simultaneously.
-+// Their previous process-local ids (gs-0001, mt-0001, gct-0001) collided.
-+// Scope new identifiers to a validated generation name without changing
-+// single-process/local-mode wire format when no generation is configured.
-+static const char *generation_suffix(void) {
-+    static char cached[10];
-+    static int loaded;
-+    if (!loaded) {
-+        loaded = 1;
-+        const char *id = getenv("MKWOM_GENERATION_ID");
-+        if (id && *id && strlen(id) <= 8) {
-+            size_t n = strlen(id);
-+            int valid = 1;
-+            for (size_t k = 0; k < n; k++)
-+                if (!((id[k] >= 'a' && id[k] <= 'z') || (id[k] >= '0' && id[k] <= '9'))) valid = 0;
-+            if (valid) snprintf(cached, sizeof cached, "%s", id);
-+        }
-+    }
-+    return cached;
-+}
-+
-+static void generation_id(char out[24], const char *prefix, unsigned count) {
-+    const char *generation = generation_suffix();
-+    if (*generation) snprintf(out, 24, "%s-%s-%04u", prefix, generation, count);
-+    else snprintf(out, 24, "%s-%04u", prefix, count);
-+}
-+
 +static uint64_t member_seq;
 +
 +// Low-overhead capacity snapshot once a minute. One server hosts many
@@ -17814,7 +17715,7 @@ index 0000000..fb8f922
 +        srv_log("no room for another game session (%d)", nsessions);
 +        return NULL;
 +    }
-+    generation_id(s->id, "gs", ++next_gs);
++    snprintf(s->id, sizeof s->id, "gs-%04u", ++next_gs);
 +    snprintf(s->tenant, sizeof s->tenant, "%s", tenant);
 +    snprintf(s->config, sizeof s->config, "%s", config);
 +    s->room = room;
@@ -17926,10 +17827,6 @@ index 0000000..fb8f922
 +// ---- rooms: CreateGameSessionCreationTicket {1: parent, 2: CreationTicket {2: config, 3: TicketMember (the host),
 +// 6: GameSessionTemplate {11: attributes}}}
 +static void create_room(SrvCall *c, const uint8_t *msg, size_t len) {
-+    if (srv_draining()) {
-+        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
-+        return;
-+    }
 +    const char *uid = srv_call_uid(c);
 +    PbField ct, cfg = {0}, host, tmpl, f;
 +    SrvMap host_attrs = {0}, attrs = {0};
@@ -17971,7 +17868,7 @@ index 0000000..fb8f922
 +        return;
 +    }
 +    snprintf(s->version, sizeof s->version, "%s", version);
-+    generation_id(s->creation, "gct", ++next_gct);
++    snprintf(s->creation, sizeof s->creation, "gct-%04u", ++next_gct);
 +    member_add(s, uid, &host_attrs, ++s->next_ussid);
 +    session_ready(s);
 +    srv_player_set_version(uid, version);
@@ -18016,10 +17913,6 @@ index 0000000..fb8f922
 +// A friend may join a private room or an accepting public lobby. Closed/full public races refuse new players.
 +// Reply {1: MemberEntry..., 2: GameSession}.
 +static void join(SrvCall *c, const uint8_t *msg, size_t len) {
-+    if (srv_draining()) {
-+        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
-+        return;
-+    }
 +    const char *uid = srv_call_uid(c);
 +    char tenant[64];
 +    tenant_of(c, tenant);
@@ -18182,12 +18075,12 @@ index 0000000..fb8f922
 +    pb_str(&o, 1, name);
 +    size_t m = pb_begin(&o, 2);
 +    pb_str(&o, 1, "stun.npln.nintendo.net");
-+    pb_varint(&o, 2, (uint64_t)srv_udp_port(0));
++    pb_varint(&o, 2, 3478);
 +    pb_varint(&o, 3, 1);   // UDP
 +    pb_end(&o, m);
 +    m = pb_begin(&o, 3);
 +    pb_str(&o, 1, *relay ? relay : "relay.npln.nintendo.net");
-+    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", srv_udp_port(1), 1, 65535));
++    pb_varint(&o, 2, (uint64_t)srv_setting_int("turn_port", 3479, 1, 65535));
 +    pb_varint(&o, 3, 1);
 +    pb_str(&o, 4, *relay ? turn_user : uid);
 +    pb_str(&o, 5, *relay ? turn_password : cred);
@@ -18228,10 +18121,6 @@ index 0000000..fb8f922
 +
 +// CreateMatchmakingTicket {1: parent, 2: Ticket {2: config, 4: repeated TicketMember {1: user, 2: attributes}}}
 +static void create_ticket(SrvCall *c, const uint8_t *msg, size_t len) {
-+    if (srv_draining()) {
-+        srv_call_end(c, ST_UNAVAILABLE, "server updating: use the new lobby");
-+        return;
-+    }
 +    const char *uid = srv_call_uid(c);
 +    PbField tk, f, a;
 +    PbOut o = {0};
@@ -18270,7 +18159,7 @@ index 0000000..fb8f922
 +    }
 +    t->used = 1;
 +    t->state = T_SEARCHING;
-+    generation_id(t->id, "mt", ++next_mt);
++    snprintf(t->id, sizeof t->id, "mt-%04u", ++next_mt);
 +    tenant_of(c, t->tenant);
 +    snprintf(t->config, sizeof t->config, "%s", last_seg(config));
 +    snprintf(t->uid, sizeof t->uid, "%s", uid);
@@ -18663,14 +18552,7 @@ index 0000000..fb8f922
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
 +    last = now;
-+    if (srv_draining()) {
-+        // Do not create races from already-queued tickets after cutover.
-+        for (int i = 0; i < TICKETS_MAX; i++)
-+            if (tickets[i].used && (tickets[i].state == T_SEARCHING || tickets[i].state == T_PLACING))
-+                tickets[i].state = T_CANCELLED;
-+    } else {
-+        matcher(now);
-+    }
++    matcher(now);
 +    if (now - last_abandon >= ABANDON_MS) {   // tickets whose player is gone (an unclean exit never cancels its own)
 +        last_abandon = now;
 +        for (int i = 0; i < TICKETS_MAX; i++)
@@ -18721,7 +18603,7 @@ new file mode 100644
 index 0000000..2afd6d0
 --- /dev/null
 +++ b/runtime/srv/srv_session.h
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions (the protocol description, "Game sessions, rooms, room IDs, ICE" and "Matchmaking"): rooms made by
 +// a creation ticket and joined by JoinGameSession, sessions the matcher makes from matchmaking tickets, room IDs (short
@@ -18816,7 +18698,7 @@ new file mode 100644
 index 0000000..c3d8e30
 --- /dev/null
 +++ b/runtime/srv/srv_standalone.c
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,1 @@
 +// Linux server-only entry point. Build: uv run tools/build/server.py; no game, SDL or Vulkan is linked.
 +// The ordinary executable still uses core/boot/main.c and the full platform layer.
 +#ifdef MKW_SERVER_STANDALONE
@@ -18851,7 +18733,7 @@ new file mode 100644
 index 0000000..0dbab70
 --- /dev/null
 +++ b/runtime/srv/srv_store.c
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships (srv_store.h). Small tables in memory, written whole to their files
 +// after a change: a new account or friendship at once (the server ends with the game, killed with it), the "last seen"
@@ -19199,7 +19081,7 @@ new file mode 100644
 index 0000000..9488f83
 --- /dev/null
 +++ b/runtime/srv/srv_store.h
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships, kept in <data> (srv_data_dir) as small text files written whole and
 +// atomically: accounts.tsv (one account per friend code), links.tsv (who added whom, who declined whom), settings.txt
@@ -19249,7 +19131,7 @@ new file mode 100644
 index 0000000..a2c1115
 --- /dev/null
 +++ b/runtime/srv/srv_svc.h
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's services and the gRPC layer (srv_h2.c) between them and the network: a table of the methods the
 +// game calls (srv_methods.c), and what a service may do on a call. Everything runs on the server's single thread.
@@ -19311,7 +19193,7 @@ new file mode 100644
 index 0000000..e2fd76c
 --- /dev/null
 +++ b/runtime/srv/srv_tls.c
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's TLS (srv_tls.h). Certificates as the game's servers need them: an RSA-2048 CA and a server
 +// certificate it signs for every name the game connects to (they resolve to this server: ov_net.c), SHA-256.
@@ -19590,7 +19472,7 @@ new file mode 100644
 index 0000000..6939990
 --- /dev/null
 +++ b/runtime/srv/srv_tls.h
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's TLS (Mbed TLS): its certificates, made on this PC the first time and kept, and the two
 +// configurations it serves with: HTTP/2 ("h2") for the game's gRPC port, HTTP/1.1 for the friends API next to it.
@@ -19612,7 +19494,7 @@ new file mode 100644
 index 0000000..4a126b1
 --- /dev/null
 +++ b/runtime/srv/srv_udp.c
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's UDP answers (srv_udp.h).
 +#include "srv_udp.h"
@@ -19685,7 +19567,7 @@ new file mode 100644
 index 0000000..edd0a13
 --- /dev/null
 +++ b/runtime/srv/srv_udp.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's UDP answers, as pure functions of the datagram and the address it came from: the socket loop
 +// (srv_main.c) only receives and sends. Pia (the game's peer-to-peer library) asks them before a race to learn the
@@ -19716,7 +19598,7 @@ new file mode 100644
 index 0000000..b429a53
 --- /dev/null
 +++ b/runtime/srv/srv_value.c
-@@ -0,0 +1,460 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The game's attribute values as a tree (srv_value.h).
 +#include "srv_value.h"
@@ -20182,7 +20064,7 @@ new file mode 100644
 index 0000000..9b3bd2a
 --- /dev/null
 +++ b/runtime/srv/srv_value.h
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The game's attribute values (MapValue) as a tree the server can change: Gamesync documents (srv_docs.c), ticket and
 +// session attributes (srv_session.c), the referee's results (srv_referee.c). Decoding normalises the way the game reads
@@ -20451,7 +20333,7 @@ new file mode 100644
 index 0000000..3e4df5e
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.cpp
-@@ -0,0 +1,480 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page, in the order a player needs it: who they are (name, friend code), how they play
 +// (off, hosting the server built into the game, or joining a friend's), then their friends, then LAN play through
@@ -20937,7 +20819,7 @@ new file mode 100644
 index 0000000..8ae2f1d
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.h
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,1 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page (launcher_online.cpp): this player's name and friend code, how they play (off, hosting
 +// the built-in server, joining a friend's), friend requests and friends, LAN play through Tailscale.
@@ -21197,7 +21079,7 @@ new file mode 100644
 index 0000000..a5e3e53
 --- /dev/null
 +++ b/runtime/ui/menu/online_tab.cpp
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,1 @@
 +// F1 private-server controls, using the server and client integration from PRs #353/#354 (net_online.h).
 +// Unlike the launcher page, this runs during gameplay: even interface enumeration and port probes must be off
 +// the present/replay path. One detached worker handles an action and publishes a bounded snapshot under a lock.
@@ -21450,7 +21332,7 @@ new file mode 100644
 index 0000000..0cddc0e
 --- /dev/null
 +++ b/runtime/ui/menu/online_tab.h
-@@ -0,0 +1,3 @@
+@@ -0,0 +1,1 @@
 +// In-game server controls. Drawing only reads snapshots; network, disk and process work runs off the present path.
 +#pragma once
 +void online_tab(float scale, float bottom);
@@ -21569,7 +21451,7 @@ new file mode 100644
 index 0000000..4a93ac4
 --- /dev/null
 +++ b/tests/runtime/t_net_listen.c
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,1 @@
 +// When this PC's server listens again (runtime/sdk/ov/net_listen.h): the address changes of 14/11/2026, when Tailscale
 +// dropped its address for 4 s and each change restarted the server, replayed second by second with example addresses.
 +#include <stdio.h>
@@ -21633,7 +21515,7 @@ new file mode 100644
 index 0000000..d4f9347
 --- /dev/null
 +++ b/tests/runtime/t_srv.c
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,1 @@
 +// The online server's building blocks that need no network: the protobuf reader and writer (runtime/srv/srv_pb.c)
 +// against the encoding guide's examples and malformed input, the STUN reply (runtime/srv/srv_udp.c) against RFC 5769's
 +// sample addresses and Pia's NAT check against the protocol description's example, the value tree and field paths
@@ -22341,7 +22223,7 @@ new file mode 100644
 index 0000000..5b407d9
 --- /dev/null
 +++ b/tests/runtime/test_lan_peers.py
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,1 @@
 +"""Compile the production VPN peer helpers without the game or GPU.
 +
 +Checks address restrictions, broadcast selection, the peer limit and configuration reloads.
@@ -22440,7 +22322,7 @@ new file mode 100644
 index 0000000..23158d7
 --- /dev/null
 +++ b/tests/runtime/test_net_invite.py
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,1 @@
 +"""Compile the actual F1 server invite codec and check routing, typos and malformed input without a game.
 +
 +Usage: uv run pytest tests/test_net_invite.py (C compiler required; the bundled Windows compiler is supported).
@@ -22517,7 +22399,7 @@ new file mode 100644
 index 0000000..525132c
 --- /dev/null
 +++ b/tests/runtime/test_net_listen.py
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,1 @@
 +"""When this PC's server listens again (runtime/sdk/ov/net_listen.h): tests/runtime/t_net_listen.c, built with the C compiler
 +at hand, replays the address changes of 14/11/2026 (Tailscale's address gone for 4 s, each change restarting the server
 +and ending every player's session) and checks the server listens again only on changes that last.
@@ -22551,7 +22433,7 @@ new file mode 100644
 index 0000000..f6e3cf8
 --- /dev/null
 +++ b/tests/runtime/test_online_clock.py
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,1 @@
 +"""Check the real SDK clock observer without the game: Online Play's libc++ steady_clock must not enter an unset
 +console time hook. Usage: uv run pytest tests/test_online_clock.py (a C compiler is required).
 +"""
@@ -22620,7 +22502,7 @@ new file mode 100644
 index 0000000..46547e1
 --- /dev/null
 +++ b/tests/runtime/test_online_friends.py
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,1 @@
 +"""Check the production SDK friend-list override against cached server friends, without the game or a network.
 +
 +Why: an always-empty SDK list hid accepted server friends in the game's Friends menu.
@@ -22697,7 +22579,7 @@ new file mode 100644
 index 0000000..268aa39
 --- /dev/null
 +++ b/tests/runtime/test_online_input.py
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,1 @@
 +"""Exercise the real SDL F1 adapter, event queue and Online field in headless Dear ImGui.
 +
 +Why: the launcher uses SDL's ImGui backend, so launcher screenshots missed missing in-game text events and polling
@@ -22968,7 +22850,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1234 @@
+@@ -0,0 +1,1 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -23156,129 +23038,6 @@ index 0000000..b955046
 +    snapshot = next(line for line in log.read_text().splitlines() if "capacity: sessions=" in line)
 +    assert "sessions=0/256" in snapshot
 +    assert "members=0" in snapshot and "listeners=0" in snapshot
-+
-+
-+def test_second_native_generation_uses_private_tcp_udp_and_data(server: Path, tmp_path: Path) -> None:
-+    """Run a second native server beside the first without sharing UDP listeners or disk writes."""
-+    exe = os.environ.get("MKW_SRV_EXE")
-+    if not exe:
-+        pytest.skip("native server binary not provided")
-+    # The server fixture keeps all production-default UDP ports open in a first process.
-+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
-+        tcp.bind(("127.0.0.1", 0))
-+        port = tcp.getsockname()[1]
-+    udp_ports = []
-+    reserved = []
-+    for _ in range(5):
-+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-+        sock.bind(("127.0.0.1", 0))
-+        reserved.append(sock)
-+        udp_ports.append(sock.getsockname()[1])
-+    for sock in reserved:
-+        sock.close()
-+    data = tmp_path / "second-generation"
-+    data.mkdir()
-+    (data / "settings.txt").write_text("login_limit=64\n")
-+    logfile = tmp_path / "second-server.log"
-+    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
-+            "--udp-ports", ",".join(map(str, udp_ports)), "--data", str(data), "--seconds", "20"]
-+    with logfile.open("w") as output:
-+        second = subprocess.Popen(args, stderr=output)
-+    try:
-+        deadline = time.monotonic() + 15
-+        while time.monotonic() < deadline:
-+            assert second.poll() is None, logfile.read_text(errors="replace")
-+            try:
-+                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-+                break
-+            except OSError:
-+                time.sleep(0.1)
-+        else:
-+            pytest.fail("second generation never opened its private TCP port")
-+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-+            sock.bind(("127.0.0.1", 0))
-+            sock.settimeout(1)
-+            request = struct.pack(">HHI", 1, 0, 0x2112A442) + os.urandom(12)
-+            for stun in udp_ports[:2]:
-+                sock.sendto(request, ("127.0.0.1", stun))
-+                reply = sock.recv(512)
-+                assert reply[:2] == b"\x01\x01" and reply[8:20] == request[8:20]
-+        # The original server remains healthy throughout the second server's lifetime.
-+        with socket.create_connection(("127.0.0.1", PORT), timeout=2):
-+            pass
-+        assert (data / "pki/ca.der").exists() and (server / "pki/ca.der").exists()
-+        assert data.resolve() != server.resolve()
-+    finally:
-+        second.terminate()
-+        try:
-+            second.wait(timeout=5)
-+        except subprocess.TimeoutExpired:
-+            second.kill()
-+            second.wait()
-+
-+
-+def test_native_server_rejects_cross_channel_signed_tickets(tmp_path):
-+    """A Beta score server cannot accept Release or legacy-v1 identities."""
-+    import hashlib
-+    import hmac
-+
-+    exe = os.environ.get("MKW_SRV_EXE")
-+    if not exe:
-+        pytest.skip("native server binary not supplied")
-+    key = "ab" * 32
-+    data = tmp_path / "channel-signed-server"
-+    data.mkdir()
-+    (data / "settings.txt").write_text("login_limit=64\n")
-+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-+        sock.bind(("127.0.0.1", 0))
-+        port = sock.getsockname()[1]
-+    ports = []
-+    for _ in range(5):
-+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-+            udp.bind(("127.0.0.1", 0))
-+            ports.append(udp.getsockname()[1])
-+    env = dict(os.environ, MKWOM_GAME_TICKET_KEY=key,
-+               MKWOM_ACCOUNT_ENFORCE="1", MKWOM_SCORE_CHANNEL="beta")
-+    args = [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
-+            "--udp-ports", ",".join(map(str, ports)), "--data", str(data), "--seconds", "20"]
-+    err = tmp_path / "channel-server.log"
-+    with err.open("w") as output:
-+        proc = subprocess.Popen(args, env=env, stderr=output)
-+    try:
-+        for _ in range(100):
-+            if proc.poll() is not None:
-+                pytest.fail(err.read_text(errors="replace"))
-+            try:
-+                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-+                break
-+            except OSError:
-+                time.sleep(0.1)
-+        else:
-+            pytest.fail("channel server did not open")
-+        h = H2(data, port=port)
-+        code, account = "987654321098", "b" * 32
-+        for index, channel in enumerate(("release", None, "beta"), 1):
-+            sid = index * 2 - 1
-+            nonce = "c" * 16
-+            expiry = int(time.time()) + 90
-+            if channel:
-+                body = f"v2.{account}.{channel}.{code}.{expiry}.{nonce}"
-+            else:
-+                body = f"v1.{account}.{code}.{expiry}.{nonce}"
-+            sig = hmac.new(bytes.fromhex(key), body.encode("ascii"), hashlib.sha256).hexdigest()
-+            identity = (f"droplet-online-v1;code={code};secret={'a' * 32};friends=;"
-+                        f"mkwom={body}.{sig}")
-+            call(h, sid, SIGN_IN, pb(1, f"tenants/{TENANT}") + pb(3, pb(1, identity)))
-+            wait(h, lambda sid=sid: sid in h.ended)
-+            assert (sid in h.data) == (channel == "beta")
-+        h.s.close()
-+    finally:
-+        proc.terminate()
-+        try:
-+            proc.wait(timeout=5)
-+        except subprocess.TimeoutExpired:
-+            proc.kill()
-+            proc.wait()
 +
 +
 +def test_srv_stun_over_udp(server: Path) -> None:
@@ -23948,12 +23707,6 @@ index 0000000..b955046
 +    assert result[4] == {"request_id": f"R{ua[-4:]}", "status": 0, "result": [], "user_session_count": 2}, result
 +    race = result[3].rsplit("/", 1)[1]
 +    assert len(race) == 36 and race.count("-") == 4
-+    # A different authenticated participant cannot submit A's report or
-+    # replace the authoritative final result document directly.
-+    assert write(b, gb, w_set(f"@@RefereeReport/{race}/User/1",
-+                               {"result": [1, 0], "result_order": [1, 2]})) == {}
-+    assert write(b, gb, w_set(f"@@RefereeResult/{race}",
-+                               {"status": 1, "result": [1, 0]})) == {}
 +    write(a, ga, w_set(f"@@RefereeReport/{race}/User/1", {"result": [0, 1], "result_order": [1, 2]}))
 +    pump_all([a, b], lambda: any(e[4].get("status") == 1 for e in docs_of(b, lb, "3")))
 +    final = [e for e in docs_of(b, lb, "3") if e[4].get("status") == 1][-1][4]
@@ -24163,46 +23916,6 @@ index 0000000..b955046
 +    finally:
 +        for h in clients:
 +            h.s.close()
-+@pytest.mark.skipif(os.name == "nt", reason="Native Linux integration server")
-+def test_generation_namespaces_native_session_ids(tmp_path: Path) -> None:
-+    exe = os.environ.get("MKW_SRV_EXE")
-+    if not exe:
-+        pytest.skip("MKW_SRV_EXE not set")
-+    port = 18454
-+    env = dict(os.environ, MKWOM_GENERATION_ID="testgen")
-+    with (tmp_path / "generation-server.log").open("w") as log:
-+        process = subprocess.Popen(
-+            [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
-+             "--data", str(tmp_path), "--seconds", "30"], stderr=log, env=env)
-+    try:
-+        deadline = time.monotonic() + 15
-+        while time.monotonic() < deadline:
-+            if process.poll() is not None:
-+                pytest.fail((tmp_path / "generation-server.log").read_text())
-+            try:
-+                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-+                break
-+            except OSError:
-+                time.sleep(0.05)
-+        h = H2(tmp_path, port=port)
-+        token = signed(h, "919191919191")
-+        attrs = mapmsg({"batching_key": "generation"})
-+        host = pb(1, "tenants/current/users/current") + pb(2, attrs)
-+        request = pb(2, f"tenants/{TENANT}/matchmakingConfigs/Private24") + pb(3, host)
-+        reply = unary(h, GSS + "CreateGameSessionCreationTicket",
-+                      pb(1, "tenants/current") + pb(2, request), token)
-+        assert b"gct-testgen-" in reply[1][0], reply
-+        tracked = unary(h, GSS + "TrackGameSessionCreationTicket", pb(1, reply[1][0]), token)
-+        assert b"gs-testgen-" in fields(tracked[6][0])[1][0], tracked
-+        h.s.close()
-+    finally:
-+        process.terminate()
-+        try:
-+            process.wait(timeout=5)
-+        except subprocess.TimeoutExpired:
-+            process.kill()
-+            process.wait()
-+
 diff --git a/tools/build/README.md b/tools/build/README.md
 index 3adaf6d..948c7fb 100644
 --- a/tools/build/README.md
@@ -24404,7 +24117,7 @@ new file mode 100644
 index 0000000..e1436a5
 --- /dev/null
 +++ b/tools/build/server.py
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,1 @@
 +"""Build the standalone Linux lobby server without game files, SDL, Vulkan or a graphical session.
 +
 +Why: a shared server should use only the existing service code and pinned TLS/HTTP2 libraries, not a game runtime.
@@ -24477,7 +24190,7 @@ new file mode 100644
 index 0000000..cf70fc6
 --- /dev/null
 +++ b/tools/build/srvdeps.py
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,1 @@
 +"""Fetch the sources of the online server's two libraries into build/srv and say how to compile them: nghttp2 (MIT,
 +HTTP/2) and Mbed TLS (Apache-2.0, TLS and the certificates the server makes for itself), linked statically into the
 +executable (runtime/srv/).
@@ -24629,7 +24342,7 @@ new file mode 100644
 index 0000000..29e7f45
 --- /dev/null
 +++ b/tools/run/host_server.py
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,1 @@
 +"""Configure this user's standalone lobby and coturn services without changing other applications.
 +
 +Why: players share one Linux service; game hosts and Tailscale are not the public server's lifecycle.

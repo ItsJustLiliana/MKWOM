@@ -5,10 +5,10 @@ The single STRATO VPS has **one live multiplayer server**. A pre-beta candidate 
 ## What happens on a change to main
 
 1. GitHub Actions builds the Windows patcher, multiplayer patch and Linux server, running all automated checks.
-2. After all checks succeed, it publishes an immutable `pre-beta-<run>-<sha12>` GitHub prerelease.
+2. After all checks succeed, it stores an immutable `pre-beta-<run>-<sha12>` candidate as a **private GitHub Actions artifact** (90-day retention), not as a public GitHub Release.
 3. The `queue-strato` job automatically transfers the checksum-verified Linux server archive into
    `/home/mkwom/projects/MKWOM-server/candidates/<tag>/` over verified SSH and adds a
-   `queued-strato.json` receipt to the candidate's GitHub prerelease.
+   `queued-strato.json` receipt to the same workflow run as a private Actions artifact.
 4. **Nothing currently online is restarted.** No `channel-pre-beta` pointer is published.
 
 Pull requests only run builds/tests; they do not queue or deploy.
@@ -67,9 +67,9 @@ For the **beta** and **release** GitHub environments set `COMMUNITY_ENDPOINT=31.
 
 ## Windows setup experience
 
-The user-facing download `MKWOM-vX.Y.Z-beta.N.exe` (Beta) or `MKWOM-vX.Y.Z.exe` (stable) opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Done** closes the setup, without launching the game. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
+The user-facing download `MKWOM-vX.Y.Z-beta.N.exe` (Beta) or `MKWOM-vX.Y.Z.exe` (stable) opens a dark-blue/checkered navigation wizard styled in the visual language of the official mkw-recomp launcher (original implementation, no copied assets): **Game folder → Update channel → Account → Review → Install**. Each step must finish before proceeding. Installation is initiated only from Review and displays phase-based progress. When finished, **Open Launcher** starts the Recomp launcher and closes setup; **Close** exits without launching. Future runs launch through the installed direct `mkw.exe` updater bridge. Only Beta and Release are user-selectable; pre-beta is strictly a build queue.
 
-A stable EXE Release is created as a draft during promotion and becomes a **published non-prerelease Latest** only after the approved restart, health check and channel activation. Beta candidates and queued pre-beta builds remain internal GitHub prereleases, not the Latest stable download.
+A stable EXE Release is created as a draft during promotion and becomes a **published non-prerelease Latest** only after the approved restart, health check and channel activation. Beta candidates remain approved GitHub prereleases; queued pre-beta builds remain private Actions artifacts and do not appear on the Releases page.
 
 ## Existing installation workflow
 

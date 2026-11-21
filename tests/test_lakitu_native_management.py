@@ -1,6 +1,5 @@
 """Lakitu native management invariants; full protocol/build checks run in CI."""
 from pathlib import Path
-import re
 
 PATCH = (Path(__file__).resolve().parents[1] / "patches" / "multiplayer.patch").read_text(encoding="utf-8")
 

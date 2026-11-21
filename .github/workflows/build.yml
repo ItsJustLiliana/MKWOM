@@ -77,7 +77,7 @@ jobs:
       - name: Stamp immutable source SHA into packaged updater
         env:
           MKWOM_BUILD_SHA: ${{ github.sha }}
-        run: python -c "import os,pathlib,re; s=os.environ['MKWOM_BUILD_SHA']; assert re.fullmatch(r'[a-f0-9]{40}',s); pathlib.Path('mkwom/build_identity.py').write_text('BUILD_SHA = ' + repr(s) + '\\n', encoding='utf-8')"
+        run: python -c "import os,pathlib,re; s=os.environ['MKWOM_BUILD_SHA']; assert re.fullmatch(r'[a-f0-9]{40}',s); pathlib.Path('mkwom/build_identity.py').write_text('BUILD_SHA = ' + repr(s) + '\n', encoding='utf-8')"
       - run: python -m PyInstaller --onefile --windowed --name mkwom --paths . tools/entry.py
       - run: ./dist/mkwom.exe --help
       - name: Check graphical Tkinter runtime is available

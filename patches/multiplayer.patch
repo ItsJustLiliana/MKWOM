@@ -14698,7 +14698,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,643 @@
+@@ -0,0 +1,647 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15134,6 +15134,10 @@ index 0000000..7cc41f7
 +            for (int j = 0; j < RACES_MAX; j++)
 +                if (s->referee.races[j].used && !strcmp(s->referee.races[j].request_id, req))
 +                    already_started = 1;
++            // A Knockout Tour is one competition. Its next section must not
++            // be mistaken for an unrelated new race during drain.
++            if (!already_started && referee_admitted_competition(&s->referee, req))
++                already_started = 1;
 +            if (!already_started) {
 +                docs_rollback(&s->docs);
 +                return ST_UNAVAILABLE;
@@ -17098,7 +17102,7 @@ new file mode 100644
 index 0000000..277e38c
 --- /dev/null
 +++ b/runtime/srv/srv_referee.c
-@@ -0,0 +1,340 @@
+@@ -0,0 +1,352 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (srv_referee.h).
 +#include "srv_referee.h"
@@ -17158,6 +17162,18 @@ index 0000000..277e38c
 +    *section = (int)sec;
 +    snprintf(tour, cap, "Surv_%.*s_%.*s_%.*s_%s", (int)len[0], num[0], (int)len[1], num[1], (int)len[2], num[2], p);
 +    return 1;
++}
++
++int referee_admitted_competition(const SrvReferee *r, const char *request_id) {
++    char tour[128];
++    int section = -1;
++    if (!knockout_id(request_id, tour, sizeof tour, &section)) return 0;
++    for (int i = 0; i < RACES_MAX; i++) {
++        const SrvRace *prior = &r->races[i];
++        if (prior->used && prior->section >= 0 && prior->section < section &&
++            !strcmp(prior->tour, tour)) return 1;
++    }
++    return 0;
 +}
 +
 +static SrvRace *by_uuid(SrvReferee *r, const char *uuid) {
@@ -17444,7 +17460,7 @@ new file mode 100644
 index 0000000..a3fb79f
 --- /dev/null
 +++ b/runtime/srv/srv_referee.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,45 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (the protocol description, "Race referee"), entirely in a game session's Gamesync documents: a
 +// player's request document gets a result document (status 0) in the same batch, so every game sees within its 36 s
@@ -17485,6 +17501,8 @@ index 0000000..a3fb79f
 +// Races whose first report is RACE_GRACE_MS old are closed whoever is missing. Run after every batch, and by the
 +// session's timer (when everybody waits, nobody writes).
 +void referee_tick(SrvReferee *r, SrvDocs *d, uint64_t now_ms, int64_t now_s);
++// Allow later sections of a Knockout Tour that started before drain, not a new tour.
++int referee_admitted_competition(const SrvReferee *r, const char *request_id);
 +// Elo with K = 24 over every pair: rating[i] and rank[i] (lower is better, equal ranks draw) of n players, their new
 +// ratings in out.
 +void referee_elo(const double *rating, const double *rank, int n, double *out);
@@ -17493,7 +17511,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1132 @@
+@@ -0,0 +1,1134 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -18603,8 +18621,10 @@ index 0000000..fb8f922
 +    for (int i = 0; i < nsessions; i++) {   // races whose players all wait: nobody writes to close them
 +        srv_gs_tick(sessions[i], now);
 +        referee_tick(&sessions[i]->referee, &sessions[i]->docs, now, (int64_t)time(NULL));
-+        srv_session_flush_scores(sessions[i]);
-+        if (sessions[i]->docs.nchanged) srv_gs_changed(sessions[i], 0);
++        // A timer-closed race must never broadcast final status if the
++        // durable native outbox write failed. Retain changes for retry.
++        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
++            srv_gs_changed(sessions[i], 0);
 +    }
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
 +        capacity_snapshot();

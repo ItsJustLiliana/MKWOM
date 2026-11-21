@@ -23283,7 +23283,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1065 @@
+@@ -0,0 +1,1092 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -23760,6 +23760,33 @@ index 0000000..b955046
 +    assert "123456789012" in accounts and accounts.rstrip().endswith("Tester")
 +    log = (server / "logs/server.log").read_text()
 +    assert f"{SIGN_IN} -> 7 friend code belongs to another emulator" in log
++    # Real HTTP/2 Auth/RefreshToken regression: the game needs a replacement
++    # after its advertised one-hour duration. A valid signed refresh token
++    # rotates both credentials without silently dropping the active player.
++    refresh_rpc = "/nn.npln.auth.v1.Auth/RefreshToken"
++    refresh_proof = token[3][0].decode()
++    call(h, 7, refresh_rpc, pb(1, refresh_proof))
++    wait(h, lambda: 7 in h.ended)
++    rotated = fields(h.data[7][5:])
++    assert fields(rotated[1][0])[1][0] == user
++    rotated_token = fields(rotated[2][0])
++    assert rotated_token[2][0].count(b".") == 2
++    assert rotated_token[3][0].count(b".") == 2
++    assert fields(rotated_token[4][0])[1][0] == 3600
++    # A changed signature, or an access credential used as a refresh proof,
++    # cannot mint new sessions without a bearer.
++    changed = refresh_proof[:-1] + ("A" if refresh_proof[-1] != "A" else "B")
++    call(h, 9, refresh_rpc, pb(1, changed))
++    wait(h, lambda: 9 in h.ended)
++    assert 9 not in h.data
++    call(h, 11, refresh_rpc, pb(1, bearer))
++    wait(h, lambda: 11 in h.ended)
++    assert 11 not in h.data
++    # An authenticated bearer also works when the game does not send a
++    # separate refresh token on its already-authenticated transport.
++    call(h, 13, refresh_rpc, b"", (("authorization", f"Bearer {bearer}"),))
++    wait(h, lambda: 13 in h.ended)
++    assert 13 in h.data
 +    h.s.close()
 +
 +

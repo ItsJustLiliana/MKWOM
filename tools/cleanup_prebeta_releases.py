@@ -7,7 +7,10 @@ versions and all their tags/assets are untouched.
 import json
 import subprocess
 
-from candidate_store import legacy_public_prebeta
+try:
+    from .candidate_store import legacy_public_prebeta
+except ImportError:  # Run as a script from tools/ in GitHub Actions.
+    from candidate_store import legacy_public_prebeta
 
 
 def main() -> None:

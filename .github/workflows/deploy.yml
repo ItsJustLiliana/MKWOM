@@ -27,7 +27,7 @@ jobs:
           AUTO_DEPLOY: ${{ vars.AUTO_DEPLOY }}
           NETWORK_ISOLATION_VERIFIED: ${{ vars.NETWORK_ISOLATION_VERIFIED }}
           DEPLOY_STAGE: ${{ inputs.environment }}
-          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_ROOT: ${{ inputs.environment == 'beta' && '/home/mkwom/projects/MKWOM-beta' || '/home/mkwom/projects/MKWOM-server' }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}
           LOBBY_PORT: ${{ vars.LOBBY_PORT }}
@@ -81,7 +81,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_STAGE: ${{ inputs.environment }}
-          DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT }}
+          DEPLOY_ROOT: ${{ inputs.environment == 'beta' && '/home/mkwom/projects/MKWOM-beta' || '/home/mkwom/projects/MKWOM-server' }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}
           LOBBY_PORT: ${{ vars.LOBBY_PORT }}

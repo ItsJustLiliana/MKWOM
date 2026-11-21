@@ -187,7 +187,7 @@ def test_updater_uses_selected_channel_and_hash(folders, monkeypatch):
     cli.update(game, "beta")
     assert seen[0].endswith("channel-beta")
     assert installer.read_json(game / ".mkwom/settings.json")["channel"] == "beta"
-    assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == cli.COMMUNITY_ENDPOINT
+    assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == cli.COMMUNITY_ENDPOINTS["beta"]
     assert "core_num_gate=1" in (game / "mkw.ini").read_text()
 
 
@@ -228,18 +228,18 @@ def test_invalid_zlib_is_reported_as_patch_error():
 def test_updater_replaces_old_arch_custom_server(folders, monkeypatch):
     _, _, game, archive = folders
     installer.json_write(game / ".mkwom/settings.json",
-                         {"channel": "pre-beta", "endpoint": "private.example:18443", "endpoint_mode": "custom"})
+                         {"channel": "beta", "endpoint": "private.example:18443", "endpoint_mode": "custom"})
     blob = archive.read_bytes()
     def get(url, _limit):
-        if url.endswith("/releases/tags/channel-pre-beta"):
+        if url.endswith("/releases/tags/channel-beta"):
             return json.dumps({"assets": [{"name": "channel.json", "browser_download_url":
-                               "https://github.com/ItsJustLiliana/MKWOM/releases/download/channel-pre-beta/channel.json"}]}).encode()
+                               "https://github.com/ItsJustLiliana/MKWOM/releases/download/channel-beta/channel.json"}]}).encode()
         if url.endswith("/channel.json"):
-            return json.dumps({"format": 1, "channel": "pre-beta", "version": "test-1",
+            return json.dumps({"format": 1, "channel": "beta", "version": "test-1",
                                "installer_version": "0.1.0", "sha256": delta.sha(blob),
                                "patch_url": "https://github.com/ItsJustLiliana/MKWOM/releases/download/test/patch.zip",
                                "endpoint": "new-community.example:18443"}).encode()
         return blob
     monkeypatch.setattr(cli, "download", get)
-    cli.update(game, "pre-beta")
-    assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == cli.COMMUNITY_ENDPOINT
+    cli.update(game, "beta")
+    assert installer.read_json(game / ".mkwom/settings.json")["endpoint"] == cli.COMMUNITY_ENDPOINTS["beta"]

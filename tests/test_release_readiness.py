@@ -46,8 +46,12 @@ def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path
         def __exit__(self, *args):
             return False
 
-    monkeypatch.setattr(readiness.urllib.request, "urlopen",
-                        lambda url, timeout: FakeResponse())
+    def probe(url, timeout):
+        if "/scores?" in url:
+            raise urllib.error.HTTPError(url, 401, "Unauthorized", None, None)
+        return FakeResponse()
+
+    monkeypatch.setattr(readiness.urllib.request, "urlopen", probe)
     readiness.check_release_ready(root)
     variables[b"MKWOM_SCORE_CHANNEL"] = b"beta"
     with pytest.raises(RuntimeError, match="single-channel"):

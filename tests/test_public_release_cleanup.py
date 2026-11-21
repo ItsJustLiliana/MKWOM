@@ -68,10 +68,11 @@ def test_missing_public_patch_prevents_any_deletions(monkeypatch):
     assert calls == []
 
 
-def test_release_workflow_only_cleans_after_verified_strato_staging():
+def test_ordinary_push_does_not_change_existing_public_release_assets():
     from pathlib import Path
     workflow = (Path(__file__).parents[1] / ".github/workflows/build.yml").read_text()
-    assert "cleanup-legacy-stable-assets:" in workflow
-    block = workflow.split("cleanup-legacy-stable-assets:", 1)[1]
-    assert "needs: [queue-strato]" in block
-    assert "tools/cleanup_public_release_assets.py" in block
+    assert "cleanup-legacy-stable-assets:" not in workflow
+    assert "cleanup-old-prebeta:" not in workflow
+    # A deliberate maintenance tool remains available separately if ever required.
+    assert "def cleanup()" in (Path(__file__).parents[1] /
+                               "tools/cleanup_public_release_assets.py").read_text()

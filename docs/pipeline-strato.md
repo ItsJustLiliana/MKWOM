@@ -2,7 +2,7 @@
 
 STRATO must run **two independent live server instances**, Beta and Release, each with its own working directory, service, TLS identity, port set and native session/score outbox. A pre-beta candidate is not a running server and has no client updater channel.
 
-> **Migration block:** The historical deployment has only one shared `mkw-lobby.service` under `/home/mkwom/projects/MKWOM-server`. Since that cannot safely isolate Beta/Release during promotions, this repository now **refuses all live promotions** until the separate services are configured and verified. The currently running shared lobby is left untouched. Creating a Beta prerelease artifact does not override this protection. The native server still uses fixed STUN/NAT UDP ports; two independent running servers also need separate UDP/TURN routing before normal multiplayer can use both simultaneously. TCP-port separation alone is not sufficient.
+> **Migration block:** The historical live service `mkw-lobby.service` under `/home/mkwom/projects/MKWOM-server` is retained as Release. Beta must be provisioned separately at `/home/mkwom/projects/MKWOM-server-beta` as `mkw-lobby-beta.service` before any new Beta promotion. The workflow now **refuses unsafe promotions** until these distinct services are configured and verified. The currently running service is left untouched. Creating a Beta prerelease artifact does not override this protection. The native server still uses fixed STUN/NAT UDP ports; two independent running servers also need separate UDP/TURN routing before normal multiplayer can use both simultaneously. TCP-port separation alone is not sufficient.
 
 ## What happens on a change to main
 
@@ -34,7 +34,7 @@ Run the *same* workflow with:
 - Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `vX.Y.Z-beta.N` tag (legacy `beta-<run>-<sha12>` tags also work)
 - Release version: leave blank to promote `v0.1.2-beta.N` to `v0.1.2` (legacy Beta tags use the next stable patch version)
 
-It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart **only** `mkw-lobby-release.service`, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. After publishing `v0.1.2`, the next Beta becomes `v0.1.3-beta.1`. Existing Beta prereleases stay available for rollback. Beta releases keep internal verification and deployment assets; the stable public Release exposes only the versioned Windows patcher EXE and optional patch ZIP. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
+It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart **only** `mkw-lobby.service`, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. After publishing `v0.1.2`, the next Beta becomes `v0.1.3-beta.1`. Existing Beta prereleases stay available for rollback. Beta releases keep internal verification and deployment assets; the stable public Release exposes only the versioned Windows patcher EXE and optional patch ZIP. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
 
 ## One-time GitHub environment setup
 
@@ -46,8 +46,8 @@ Set these in **Settings → Environments → pre-beta**:
 | Secret | DEPLOY_USER | mkwom |
 | Secret | DEPLOY_SSH_KEY | Dedicated unencrypted automation-only private Ed25519 key (keep in GitHub secret only) |
 | Secret | DEPLOY_SSH_KNOWN_HOSTS | Pinned, independently verified VPS SSH host public key |
-| Variable | DEPLOY_ROOT | **In Beta environment:** `/home/mkwom/projects/MKWOM-server-beta`; **in Release environment:** `/home/mkwom/projects/MKWOM-server-release` |
-| Variable | DEPLOY_UNIT | Beta: `mkw-lobby-beta.service`; Release: `mkw-lobby-release.service` |
+| Variable | DEPLOY_ROOT | **In Beta environment:** `/home/mkwom/projects/MKWOM-server-beta`; **in Release environment:** `/home/mkwom/projects/MKWOM-server` |
+| Variable | DEPLOY_UNIT | Beta: `mkw-lobby-beta.service`; Release: `mkw-lobby.service` |
 | Variable | LISTEN_HOST | 127.0.0.1 |
 | Variable | LOBBY_PORT | Beta: `19443`; Release: `18443` |
 | Variable | AUTO_DEPLOY | In Beta and Release environments only: `true`, **after** separate units and UDP/TURN networking are validated. Never set automatic live deployment on pre-beta. |

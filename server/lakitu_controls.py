@@ -19,7 +19,7 @@ _CHANNELS = frozenset(("beta", "release"))
 def send(root: Path, operation: str, channel: str, value: str, active: bool) -> dict:
     if channel not in _CHANNELS:
         raise HTTPException(422, "Invalid channel")
-    if operation not in ("cap", "lock", "unlock", "drain"):
+    if operation not in ("cap", "lock", "unlock", "drain", "close"):
         raise HTTPException(422, "Invalid native action")
     if operation == "cap":
         if not value.isdecimal() or not 1 <= int(value) <= 256:

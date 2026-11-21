@@ -13,17 +13,21 @@ from fastapi import HTTPException
 
 _LOCK = threading.Lock()
 _LOBBY_ID = re.compile(r"gs-[0-9]{4,10}\Z")
+_PLAYER_ID = re.compile(r"gs-[0-9]{4,10}:u-[0-9a-f]{16}\Z")
 _CHANNELS = frozenset(("beta", "release"))
 
 
 def send(root: Path, operation: str, channel: str, value: str, active: bool) -> dict:
     if channel not in _CHANNELS:
         raise HTTPException(422, "Invalid channel")
-    if operation not in ("cap", "lock", "unlock", "drain", "close"):
+    if operation not in ("cap", "lock", "unlock", "drain", "close", "force-close", "kick"):
         raise HTTPException(422, "Invalid native action")
     if operation == "cap":
         if not value.isdecimal() or not 1 <= int(value) <= 256:
             raise HTTPException(422, "Invalid lobby limit")
+    elif operation == "kick":
+        if not _PLAYER_ID.fullmatch(value):
+            raise HTTPException(422, "Invalid live player session")
     elif not _LOBBY_ID.fullmatch(value):
         raise HTTPException(422, "Invalid lobby id")
     if not active:

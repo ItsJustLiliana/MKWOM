@@ -2,7 +2,7 @@
 from fastapi.testclient import TestClient
 import pytest
 
-from server import accounts, lakitu_admin, moderation
+from server import accounts, lakitu_admin
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def test_timed_ban_expires_without_restarting_services(systems):
     assert res.json()["expires_at"] is not None
     assert player.post("/login", json=creds).status_code == 403
     with accounts.connect() as db:
-        db.execute("UPDATE account_bans SET expires_at=created_at+1, created_at=created_at-3600 "
+        db.execute("UPDATE account_bans SET expires_at=created_at-3600, created_at=created_at-7200 "
                    "WHERE user_id=?", (uid,))
     assert player.post("/login", json=creds).status_code == 200
     assert admin.get("/v1/moderation/bans?status=active", headers=headers).json()["bans"] == []

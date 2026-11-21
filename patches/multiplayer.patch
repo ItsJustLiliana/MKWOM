@@ -17497,13 +17497,14 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1155 @@
+@@ -0,0 +1,1242 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
 +#include "srv_session.h"
 +
 +#include <ctype.h>
++#include <stdarg.h>
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
@@ -17547,6 +17548,91 @@ index 0000000..fb8f922
 +// Low-overhead capacity snapshot once a minute. One server hosts many
 +// independent sessions; reporting totals identifies growth and saturation
 +// without logging every participant or packet in a 24-player race.
++// Lakitu read-only native telemetry. Data stays in the existing private server
++// directory and is never exposed through the public game protocol.
++// Bounded JSON is written atomically on the single-threaded session loop.
++static int lakitu_append(char *dst, size_t size, size_t *used, const char *fmt, ...) {
++    if (*used >= size) return 0;
++    va_list args;
++    va_start(args, fmt);
++    int n = vsnprintf(dst + *used, size - *used, fmt, args);
++    va_end(args);
++    if (n < 0 || (size_t)n >= size - *used) return 0;
++    *used += (size_t)n;
++    return 1;
++}
++
++static void lakitu_safe(char *dst, size_t cap, const char *src) {
++    size_t n = 0;
++    while (src[n] && n + 1 < cap) {
++        unsigned char c = (unsigned char)src[n];
++        dst[n] = (char)(isalnum(c) && c < 128 || c == '-' || c == '_' || c == '.' || c == ':' ? c : '_');
++        n++;
++    }
++    dst[n] = 0;
++}
++
++static void lakitu_snapshot(void) {
++    const size_t cap = 1 << 20;
++    char *doc = malloc(cap);
++    if (!doc) return;
++    size_t n = 0;
++    int ok = lakitu_append(doc, cap, &n, "{\\"schema_version\\":1,\\"observed_at\\":%lld,\\"lobbies\\":[",
++                           (long long)time(NULL));
++    for (int i = 0; ok && i < nsessions; i++) {
++        SrvSession *s = sessions[i];
++        char id[64], channel[16], config[80], version[80];
++        lakitu_safe(id, sizeof id, s->id);
++        lakitu_safe(channel, sizeof channel, s->channel);
++        lakitu_safe(config, sizeof config, s->config);
++        lakitu_safe(version, sizeof version, s->version);
++        ok = lakitu_append(doc, cap, &n,
++            "%s{\\"id\\":\\"%s\\",\\"channel\\":\\"%s\\",\\"mode\\":\\"%s\\","
++            "\\"version\\":\\"%s\\",\\"status\\":\\"%s\\",\\"capacity\\":%d,"
++            "\\"player_count\\":%d,\\"created_at\\":%lld,\\"players\\":[",
++            i ? "," : "", id, channel, config, version,
++            s->closed ? "closed" : s->listeners ? "connected" : "waiting",
++            s->max_players, s->nmembers, (long long)s->created);
++        for (int k = 0; ok && k < s->nmembers; k++) {
++            char uid[32];
++            lakitu_safe(uid, sizeof uid, s->members[k].uid);
++            ok = lakitu_append(doc, cap, &n,
++                "%s{\\"id\\":\\"%s\\",\\"name\\":\\"%s\\",\\"state\\":\\"%s\\"}",
++                k ? "," : "", uid, uid, s->members[k].streams ? "connected" : "waiting");
++        }
++        if (ok) ok = lakitu_append(doc, cap, &n, "]}");
++    }
++    if (ok) ok = lakitu_append(doc, cap, &n, "],\\"players\\":[");
++    int first = 1;
++    for (int i = 0; ok && i < nsessions; i++) {
++        SrvSession *s = sessions[i];
++        char id[64], channel[16];
++        lakitu_safe(id, sizeof id, s->id);
++        lakitu_safe(channel, sizeof channel, s->channel);
++        for (int k = 0; ok && k < s->nmembers; k++) {
++            char uid[32];
++            lakitu_safe(uid, sizeof uid, s->members[k].uid);
++            ok = lakitu_append(doc, cap, &n,
++                "%s{\\"id\\":\\"%s\\",\\"name\\":\\"%s\\",\\"lobby_id\\":\\"%s\\","
++                "\\"channel\\":\\"%s\\",\\"state\\":\\"%s\\"}",
++                first ? "" : ",", uid, uid, id, channel,
++                s->members[k].streams ? "connected" : "waiting");
++            first = 0;
++        }
++    }
++    if (ok) ok = lakitu_append(doc, cap, &n,
++        "],\\"limits\\":{\\"beta\\":{\\"max_lobbies\\":%d},"
++        "\\"release\\":{\\"max_lobbies\\":%d}}}\n",
++        srv_setting_int("beta_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX),
++        srv_setting_int("release_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX));
++    if (ok) {
++        char path[1400];
++        if (snprintf(path, sizeof path, "%s/lakitu-native.json", srv_data_dir()) < (int)sizeof path)
++            plat_file_write_atomic(path, doc, n);
++    }
++    free(doc);
++}
++
 +static void capacity_snapshot(void) {
 +    int members = 0, listeners = 0, rooms = 0, matchmaking = 0, active = 0;
 +    int largest = 0, searching = 0;
@@ -18633,6 +18719,7 @@ index 0000000..fb8f922
 +        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
 +            srv_gs_changed(sessions[i], 0);
 +    }
++    lakitu_snapshot();
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
 +        capacity_snapshot();
 +        last_capacity = now;

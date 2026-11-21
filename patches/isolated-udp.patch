@@ -74,12 +74,15 @@ diff --git a/runtime/srv/srv_main.c b/runtime/srv/srv_main.c
      for (int h = 0; h < nhosts && !self_ip[0]; h++) {
          unsigned char b[16];
 @@ -279,7 +310,7 @@
-         listen_on(hosts[h], port, 0, K_GRPC);
-         listen_on(hosts[h], port + 1, 0, K_API);
+-        listen_on(hosts[h], port, 0, K_GRPC);
+-        listen_on(hosts[h], port + 1, 0, K_API);
++        if (!listen_on(hosts[h], port, 0, K_GRPC) ||
++            !listen_on(hosts[h], port + 1, 0, K_API)) return 1;
          for (size_t k = 0; k < sizeof UDP_PORTS / sizeof *UDP_PORTS; k++) {
 +            if (k == 1 && *srv_setting("turn_host", "")) continue; // external coturn owns the configured TURN port
 -            if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", "")) continue; // external coturn owns this port
-             listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
+-            listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
++            if (!listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind)) return 1;
          }
      }
 diff --git a/runtime/srv/srv_session.c b/runtime/srv/srv_session.c

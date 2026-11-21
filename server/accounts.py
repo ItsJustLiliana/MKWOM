@@ -19,6 +19,8 @@ from argon2.exceptions import VerifyMismatchError, VerificationError
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from . import moderation
+
 app = FastAPI(title="MKWOM Accounts", docs_url=None, redoc_url=None)
 hasher = PasswordHasher()
 DB_PATH = Path(os.environ.get("MKWOM_ACCOUNTS_DB", "accounts.sqlite3"))
@@ -99,6 +101,7 @@ def connect():
             connection.execute("ALTER TABLE " + table + " ADD COLUMN game_mode TEXT NOT NULL DEFAULT 'legacy'")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_scores_channel_mode ON race_scores(user_id,channel,game_mode)")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_race_scores_user_channel ON race_scores(user_id,channel)")
+    moderation.ensure_schema(connection)
     return connection
 
 
@@ -149,6 +152,7 @@ def health():
 def register(body: Credentials):
     username = normalize_username(body.username)
     with connect() as db:
+        moderation.assert_name_allowed(db, username)
         user_id = secrets.token_hex(16)
         try:
             db.execute("INSERT INTO users(id,username,password_hash,created_at) VALUES (?,?,?,?)",
@@ -169,6 +173,7 @@ def login(body: Credentials):
             hasher.verify(result[1], body.password)
         except (VerifyMismatchError, VerificationError):
             raise HTTPException(401, "Invalid username or password") from None
+        moderation.require_not_banned(db, result[0])
         if hasher.check_needs_rehash(result[1]):
             db.execute("UPDATE users SET password_hash=? WHERE id=?",
                        (hasher.hash(body.password), result[0]))
@@ -184,6 +189,7 @@ def me(token_hash: str = Depends(bearer)):
                            (token_hash, int(time.time()))).fetchone()
         if not found:
             raise HTTPException(401, "Session expired or revoked")
+        moderation.require_not_banned(db, found[0])
         return {"id": found[0], "username": found[1]}
 
 
@@ -202,8 +208,9 @@ def game_ticket(body: GameTicketRequest, token_hash: str = Depends(bearer)):
                 JOIN users ON users.id=sessions.user_id
                 WHERE sessions.token_hash=? AND sessions.expires_at>?""",
                            (token_hash, int(time.time()))).fetchone()
-    if not found:
-        raise HTTPException(401, "Session expired or revoked")
+        if not found:
+            raise HTTPException(401, "Session expired or revoked")
+        moderation.require_not_banned(db, found[0])
     expiry = int(time.time()) + GAME_TICKET_LIFETIME
     # Scoped v2 tickets prevent confusing Beta and Release races with the same
     # account. V1 is retained only for old pre-scoring clients and servers.

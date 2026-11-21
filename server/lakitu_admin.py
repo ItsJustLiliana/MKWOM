@@ -14,7 +14,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Body
+from .lakitu_controls import send as native_send
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="MKWOM Lakitu Observer", docs_url=None, redoc_url=None, openapi_url=None)
@@ -95,20 +96,40 @@ def snapshot() -> dict:
             capacity = dict(zip(names, map(int, found.groups())))
             break
 
-    warnings = ["Native per-lobby/player telemetry is not installed; management actions are unavailable."]
+    native = None
+    native_path = ROOT / "server/lakitu-native.json"
+    try:
+        # The native process atomically replaces this file on its own event loop.
+        # Stale or corrupted snapshots are never represented as live sessions.
+        if time.time() - native_path.stat().st_mtime <= 5:
+            value = json.loads(native_path.read_text(encoding="utf-8"))
+            if (isinstance(value, dict) and value.get("schema_version") == 1
+                    and isinstance(value.get("lobbies"), list)
+                    and isinstance(value.get("players"), list)
+                    and isinstance(value.get("limits"), dict)
+                    and abs(time.time() - value.get("observed_at", 0)) <= 10):
+                native = value
+    except (OSError, ValueError, TypeError):
+        pass
+
+    warnings = []
+    if native is None:
+        warnings.append("Fresh native lobby/player telemetry is unavailable.")
+
     if not running:
         warnings.insert(0, "Native lobby process is not active.")
     return {
         "schema_version": 1, "server_name": "MKWOM / STRATO",
         "server_version": version, "generation": None,
         "uptime_seconds": uptime, "status": "healthy" if running else "offline",
-        "capabilities": [], "metrics": {
+        "capabilities": (["limits.write", "lobby.lock", "lobby.unlock", "lobby.drain", "lobby.close", "lobby.force_close", "player.disconnect"] if native is not None and running else []), "metrics": {
             "memory_mb": round(mem, 1) if mem is not None else None,
             "native_capacity_last_reported": capacity,
         },
-        "warnings": warnings, "limits": {},
-        "lobbies": [], "players": [], "logs": [],
-        "telemetry_scope": "process-only", "observed_at": int(time.time()),
+        "warnings": warnings, "limits": native["limits"] if native else {},
+        "lobbies": [{**lobby, "server_version": version} for lobby in native["lobbies"]] if native else [],
+        "players": native["players"] if native else [], "logs": [],
+        "telemetry_scope": "native-read-only" if native else "process-only", "observed_at": int(time.time()),
     }
 
 
@@ -122,6 +143,37 @@ def get_snapshot(authorization: str | None = Header(default=None)):
 def health():
     # No sensitive telemetry or environment details disclosed.
     return {"status": "up"}
+
+
+@app.put("/v1/limits/{channel}")
+def set_lobby_cap(channel: str, body: dict = Body(...),
+                  authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if set(body) != {"max_lobbies"} or type(body["max_lobbies"]) is not int:
+        raise HTTPException(422, "max_lobbies must be an integer")
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, "cap", channel, str(body["max_lobbies"]), enabled)
+
+
+@app.post("/v1/lobbies/{channel}/{lobby_id}/{action}")
+def change_lobby(channel: str, lobby_id: str, action: str,
+                 authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if action not in ("lock", "unlock", "drain", "close", "force-close"):
+        raise HTTPException(422, "Unsupported lobby operation")
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, action, channel, lobby_id, enabled)
+
+
+@app.post("/v1/players/{channel}/{session_id}/disconnect")
+def disconnect_player(channel: str, session_id: str,
+                      authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    state = snapshot()
+    enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
+    return native_send(ROOT, "kick", channel, session_id, enabled)
 
 
 @app.api_route("/v1/{path:path}", methods=["POST", "PUT", "PATCH", "DELETE"])

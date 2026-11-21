@@ -15371,7 +15371,7 @@ new file mode 100644
 index 0000000..1a45439
 --- /dev/null
 +++ b/runtime/srv/srv_h2.c
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,542 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection (srv_h2.h): TLS with Mbed TLS over a non-blocking socket, HTTP/2 with nghttp2 fed from
 +// memory (no socket of its own), and gRPC calls on its streams, handed to the services of srv_methods.c (srv_svc.h).
@@ -15380,6 +15380,7 @@ index 0000000..1a45439
 +// the player cancels it, a bidi stream nothing until the player half-closes it.
 +#include "srv_h2.h"
 +
++#include <ctype.h>
 +#include <limits.h>
 +#include <stdio.h>
 +#include <stdlib.h>
@@ -15391,6 +15392,7 @@ index 0000000..1a45439
 +
 +#include "srv.h"
 +#include "srv_auth.h"
++#include "srv_session.h"
 +#include "srv_svc.h"
 +
 +#ifndef MSG_NOSIGNAL
@@ -15770,6 +15772,30 @@ index 0000000..1a45439
 +size_t srv_mem_in_use(void) { return mem_all; }
 +
 +int srv_conn_kicked(const SrvConn *c) { return c->kicked; }
++// Evaluate against the Gamesync token actually bound to the live session.
++// Account identity alone is insufficient: a player may belong to other rooms.
++int srv_conn_admin_kicked(const SrvConn *conn) {
++    for (const Call *call = conn->calls; call; call = call->next) {
++        const char *auth = call->auth;
++        while (*auth == ' ') auth++;
++        const char *prefix = "bearer ";
++        int bearer = 1;
++        for (int i = 0; prefix[i]; i++)
++            if (!auth[i] || tolower((unsigned char)auth[i]) != prefix[i]) { bearer = 0; break; }
++        if (!bearer) continue;
++        auth += 7;
++        while (*auth == ' ') auth++;
++        size_t n = strcspn(auth, " \t\r\n");
++        if (!n || n >= TOKEN_MAX) continue;
++        char token[TOKEN_MAX], uid[24];
++        memcpy(token, auth, n);
++        token[n] = 0;
++        SrvSession *session = srv_session_by_token(token, uid);
++        if (session && srv_session_admin_should_kick(session, uid)) return 1;
++    }
++    return 0;
++}
++
 +
 +void srv_conn_free(SrvConn *c) {
 +    // A call's close handler may reply to others (a player leaving a room tells the rest): none of those replies may
@@ -15893,7 +15919,7 @@ new file mode 100644
 index 0000000..34af20a
 --- /dev/null
 +++ b/runtime/srv/srv_h2.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,26 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection to the online server's gRPC port: TLS (srv_tls.h), HTTP/2 (nghttp2) and gRPC calls on it.
 +// Run from the server's single poll loop: srv_conn_step does what the socket allows and never waits.
@@ -15917,6 +15943,7 @@ index 0000000..34af20a
 +// 1 when replies were queued on it outside its own step (one player's write sent to another's stream): the loop steps
 +// it again at once instead of after the next poll (up to 250 ms later).
 +int srv_conn_kicked(const SrvConn *c);
++int srv_conn_admin_kicked(const SrvConn *c);
 +// What all connections' buffers hold now (within 4 MiB per connection, 128 MiB in all).
 +size_t srv_mem_in_use(void);
 diff --git a/runtime/srv/srv_main.c b/runtime/srv/srv_main.c
@@ -15924,7 +15951,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,372 @@
+@@ -0,0 +1,381 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -16265,6 +16292,15 @@ index 0000000..de6177a
 +            }
 +        }
 +        srv_session_tick(srv_ms());
++        // Apply scoped admin disconnects only after normal connection iteration.
++        // srv_conn_free invokes each Gamesync close handler before sessions
++        // can be removed, preserving callback ownership.
++        for (int i = 0; i < nconns; i++) {
++            if (!conns[i].c || !srv_conn_admin_kicked(conns[i].c)) continue;
++            srv_conn_free(conns[i].c);
++            conns[i].c = NULL;
++        }
++        srv_session_admin_clear_kicks();
 +        // Replies one player's call queued for another's connection (a write sent to every listener) go out now, not
 +        // after the next poll: a few rounds, since stepping a connection may queue more.
 +        for (int round = 0, again = 1; again && round < 4; round++) {
@@ -17497,13 +17533,14 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1128 @@
+@@ -0,0 +1,1373 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
 +#include "srv_session.h"
 +
 +#include <ctype.h>
++#include <stdarg.h>
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
@@ -17547,6 +17584,98 @@ index 0000000..fb8f922
 +// Low-overhead capacity snapshot once a minute. One server hosts many
 +// independent sessions; reporting totals identifies growth and saturation
 +// without logging every participant or packet in a 24-player race.
++// Lakitu read-only native telemetry. Data stays in the existing private server
++// directory and is never exposed through the public game protocol.
++// Bounded JSON is written atomically on the single-threaded session loop.
++static int lakitu_append(char *dst, size_t size, size_t *used, const char *fmt, ...) {
++    if (*used >= size) return 0;
++    va_list args;
++    va_start(args, fmt);
++    int n = vsnprintf(dst + *used, size - *used, fmt, args);
++    va_end(args);
++    if (n < 0 || (size_t)n >= size - *used) return 0;
++    *used += (size_t)n;
++    return 1;
++}
++
++static void lakitu_safe(char *dst, size_t cap, const char *src) {
++    size_t n = 0;
++    while (src[n] && n + 1 < cap) {
++        unsigned char c = (unsigned char)src[n];
++        dst[n] = (char)(isalnum(c) && c < 128 || c == '-' || c == '_' || c == '.' || c == ':' ? c : '_');
++        n++;
++    }
++    dst[n] = 0;
++}
++
++static int lakitu_cap(const char *channel);
++
++static void lakitu_snapshot(void) {
++    const size_t cap = 1 << 20;
++    char *doc = malloc(cap);
++    if (!doc) return;
++    size_t n = 0;
++    int ok = lakitu_append(doc, cap, &n, "{\"schema_version\":1,\"observed_at\":%lld,\"lobbies\":[",
++                           (long long)time(NULL));
++    for (int i = 0; ok && i < nsessions; i++) {
++        SrvSession *s = sessions[i];
++        char id[64], channel[16], config[80], version[80];
++        lakitu_safe(id, sizeof id, s->id);
++        lakitu_safe(channel, sizeof channel, s->channel);
++        lakitu_safe(config, sizeof config, s->config);
++        lakitu_safe(version, sizeof version, s->version);
++        ok = lakitu_append(doc, cap, &n,
++            "%s{\"id\":\"%s\",\"channel\":\"%s\",\"mode\":\"%s\","
++            "\"version\":\"%s\",\"status\":\"%s\",\"capacity\":%d,"
++            "\"player_count\":%d,\"created_at\":%lld,\"players\":[",
++            i ? "," : "", id, channel, config, version,
++            s->admin_force_pending ? "force-closing" : s->admin_close_pending ? "closing" : s->admin_draining ? "draining" : s->admin_locked ? "locked" :
++            s->closed ? "closed" : s->listeners ? "connected" : "waiting",
++            s->max_players, s->nmembers, (long long)s->created);
++        for (int k = 0; ok && k < s->nmembers; k++) {
++            char uid[32], name[80];
++            lakitu_safe(uid, sizeof uid, s->members[k].uid);
++            SrvAccount *account = srv_account(srv_uid_code(s->members[k].uid));
++            lakitu_safe(name, sizeof name, account && account->name[0] ? account->name : uid);
++            ok = lakitu_append(doc, cap, &n,
++                "%s{\"id\":\"%s\",\"name\":\"%s\",\"state\":\"%s\"}",
++                k ? "," : "", uid, name, s->members[k].streams ? "connected" : "waiting");
++        }
++        if (ok) ok = lakitu_append(doc, cap, &n, "]}");
++    }
++    if (ok) ok = lakitu_append(doc, cap, &n, "],\"players\":[");
++    int first = 1;
++    for (int i = 0; ok && i < nsessions; i++) {
++        SrvSession *s = sessions[i];
++        char id[64], channel[16];
++        lakitu_safe(id, sizeof id, s->id);
++        lakitu_safe(channel, sizeof channel, s->channel);
++        for (int k = 0; ok && k < s->nmembers; k++) {
++            char uid[32], name[80];
++            lakitu_safe(uid, sizeof uid, s->members[k].uid);
++            SrvAccount *account = srv_account(srv_uid_code(s->members[k].uid));
++            lakitu_safe(name, sizeof name, account && account->name[0] ? account->name : uid);
++            ok = lakitu_append(doc, cap, &n,
++                "%s{\"id\":\"%s\",\"name\":\"%s\",\"lobby_id\":\"%s\","
++                "\"channel\":\"%s\",\"session_id\":\"%s:%s\",\"state\":\"%s\"}",
++                first ? "" : ",", uid, name, id, channel, id, uid,
++                s->members[k].streams ? "connected" : "waiting");
++            first = 0;
++        }
++    }
++    if (ok) ok = lakitu_append(doc, cap, &n,
++        "],\"limits\":{\"beta\":{\"max_lobbies\":%d},"
++        "\"release\":{\"max_lobbies\":%d}}}\n",
++        lakitu_cap("beta"),
++        lakitu_cap("release"));
++    if (ok) {
++        char path[1400];
++        if (snprintf(path, sizeof path, "%s/lakitu-native.json", srv_data_dir()) < (int)sizeof path)
++            plat_file_write_atomic(path, doc, n);
++    }
++    free(doc);
++}
++
 +static void capacity_snapshot(void) {
 +    int members = 0, listeners = 0, rooms = 0, matchmaking = 0, active = 0;
 +    int largest = 0, searching = 0;
@@ -17723,7 +17852,142 @@ index 0000000..fb8f922
 +
 +// A new session and its fixed documents (the protocol description, "Seeded documents"), in a batch the caller ends
 +// once its members are in (session_ready). NULL past SESSIONS_MAX. Takes attrs.
-+static SrvSession *session_new(const char *tenant, const char *config, int room, int max_players, SrvMap *attrs) {
++// Channel-specific admission limits: existing sessions survive a lowered cap.
++// The matched channel comes from a signed game ticket, never caller-supplied metadata.
++// Initial limits are read from the server's own settings file. Runtime admin
++// updates require a separate authenticated native control channel.
++int srv_session_admin_should_kick(const SrvSession *s, const char *uid) {
++    if (s->admin_force_pending) return 1;
++    for (int k = 0; k < s->nmembers; k++)
++        if (!strcmp(s->members[k].uid, uid) && s->members[k].admin_kick_pending) return 1;
++    return 0;
++}
++
++void srv_session_admin_clear_kicks(void) {
++    for (int i = 0; i < nsessions; i++)
++        for (int k = 0; k < sessions[i]->nmembers; k++)
++            sessions[i]->members[k].admin_kick_pending = 0;
++}
++
++static int channel_session_count(const char *channel) {
++    int count = 0;
++    for (int i = 0; i < nsessions; i++)
++        if (!strcmp(sessions[i]->channel, channel)) count++;
++    return count;
++}
++
++static int lakitu_beta_cap, lakitu_release_cap;
++static int lakitu_loaded;
++
++static void lakitu_limits_load(void) {
++    if (lakitu_loaded) return;
++    lakitu_loaded = 1;
++    char path[1400], text[80];
++    uint64_t size = 0;
++    if (snprintf(path, sizeof path, "%s/lakitu-limits.txt", srv_data_dir()) >= (int)sizeof path) return;
++    uint8_t *data = plat_file_read(path, &size);
++    if (data && size > 0 && size < sizeof text) {
++        memcpy(text, data, (size_t)size);
++        text[size] = 0;
++        int beta = 0, release = 0;
++        if (sscanf(text, "%d %d", &beta, &release) == 2 &&
++            beta >= 1 && beta <= SESSIONS_MAX && release >= 1 && release <= SESSIONS_MAX) {
++            lakitu_beta_cap = beta;
++            lakitu_release_cap = release;
++        }
++    }
++    free(data);
++}
++
++static int lakitu_cap(const char *channel) {
++    lakitu_limits_load();
++    if (!strcmp(channel, "beta"))
++        return lakitu_beta_cap ? lakitu_beta_cap :
++            srv_setting_int("beta_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX);
++    if (!strcmp(channel, "release"))
++        return lakitu_release_cap ? lakitu_release_cap :
++            srv_setting_int("release_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX);
++    return SESSIONS_MAX;
++}
++
++static int channel_session_admit(const char *channel) {
++    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 1;
++    return channel_session_count(channel) < lakitu_cap(channel);
++}
++
++// Commands are delivered in the private native data directory, by the
++// authenticated loopback gateway. Processed within the existing event loop:
++// caps and locks never race session creation or matchmaking.
++static void lakitu_command(void) {
++    char input[1400], ack[1400], limits[1400], text[160];
++    if (snprintf(input, sizeof input, "%s/lakitu-command.txt", srv_data_dir()) >= (int)sizeof input ||
++        snprintf(ack, sizeof ack, "%s/lakitu-ack.json", srv_data_dir()) >= (int)sizeof ack ||
++        snprintf(limits, sizeof limits, "%s/lakitu-limits.txt", srv_data_dir()) >= (int)sizeof limits) return;
++    uint64_t size = 0;
++    uint8_t *raw = plat_file_read(input, &size);
++    if (!raw) return;
++    plat_file_delete(input);
++    if (size >= sizeof text || size < 8) { free(raw); return; }
++    memcpy(text, raw, (size_t)size);
++    text[size] = 0;
++    free(raw);
++    char id[33] = {0}, op[16] = {0}, channel[16] = {0}, value[32] = {0}, extra[2] = {0};
++    int count = sscanf(text, "%32s %15s %15s %31s %1s", id, op, channel, value, extra);
++    if (count != 4 || strspn(id, "0123456789abcdef") != strlen(id) || strlen(id) != 32 ||
++        (strcmp(channel, "beta") && strcmp(channel, "release"))) return;
++    int ok = 0;
++    if (!strcmp(op, "cap")) {
++        char *end = NULL;
++        long next = strtol(value, &end, 10);
++        if (*value && end && !*end && next >= 1 && next <= SESSIONS_MAX) {
++            int old_beta = lakitu_beta_cap, old_release = lakitu_release_cap;
++            lakitu_limits_load();
++            if (!strcmp(channel, "beta")) lakitu_beta_cap = (int)next;
++            else lakitu_release_cap = (int)next;
++            char values[64];
++            int length = snprintf(values, sizeof values, "%d %d\n",
++                                  lakitu_cap("beta"), lakitu_cap("release"));
++            ok = length > 0 && (size_t)length < sizeof values &&
++                 plat_file_write_atomic(limits, values, (size_t)length);
++            if (!ok) { lakitu_beta_cap = old_beta; lakitu_release_cap = old_release; }
++        }
++    } else if (!strcmp(op, "lock") || !strcmp(op, "unlock") || !strcmp(op, "drain") || !strcmp(op, "close") || !strcmp(op, "force-close")) {
++        SrvSession *s = srv_session_find(value);
++        if (s && !strcmp(s->channel, channel)) {
++            if (!strcmp(op, "unlock") && s->admin_draining) ok = 0;
++            else {
++                s->admin_locked = strcmp(op, "unlock") != 0;
++                if (!strcmp(op, "drain") || !strcmp(op, "close") || !strcmp(op, "force-close")) s->admin_draining = 1;
++                if (!strcmp(op, "close") || !strcmp(op, "force-close")) s->admin_close_pending = 1;
++                if (!strcmp(op, "force-close")) s->admin_force_pending = 1;
++                ok = 1;
++            }
++        }
++    }
++    // A kick is scoped to a live Gamesync member, never an account alone.
++    if (!strcmp(op, "kick")) {
++        char *separator = strchr(value, ':');
++        if (separator) {
++            *separator = 0;
++            SrvSession *s = srv_session_find(value);
++            SrvMember *member = s && !strcmp(s->channel, channel) ? srv_member(s, separator + 1) : NULL;
++            if (member) { member->admin_kick_pending = 1; ok = 1; }
++        }
++    }
++    char response[100];
++    int n = snprintf(response, sizeof response, "{\"id\":\"%s\",\"ok\":%s}\n",
++                     id, ok ? "true" : "false");
++    if (n > 0 && (size_t)n < sizeof response) plat_file_write_atomic(ack, response, (size_t)n);
++    srv_log("Lakitu native command %s channel=%s accepted=%d", op, channel, ok);
++}
++
++static SrvSession *session_new(const char *tenant, const char *config, const char *channel,
++                               int room, int max_players, SrvMap *attrs) {
++    if (!channel_session_admit(channel)) {
++        map_free(attrs);
++        srv_log("MKWOM %s lobby admission blocked by configured cap", channel);
++        return NULL;
++    }
 +    SrvSession *s = nsessions < SESSIONS_MAX ? calloc(1, sizeof *s) : NULL;
 +    if (!s) {
 +        map_free(attrs);
@@ -17734,6 +17998,7 @@ index 0000000..fb8f922
 +    snprintf(s->tenant, sizeof s->tenant, "%s", tenant);
 +    snprintf(s->config, sizeof s->config, "%s", config);
 +    s->room = room;
++    snprintf(s->channel, sizeof s->channel, "%s", channel);
 +    s->max_players = max_players;
 +    s->attrs = *attrs;
 +    *attrs = (SrvMap){0};
@@ -17877,7 +18142,8 @@ index 0000000..fb8f922
 +    version_of(&host_attrs, version);   // the host's attributes, the room's, else what the player last showed
 +    if (!*version) version_of(&attrs, version);
 +    if (!*version) snprintf(version, sizeof version, "%s", srv_player_version(uid));
-+    SrvSession *s = session_new(tenant, last_seg(config), 1, srv_setting_int("room_size", 24, 2, MEMBERS_MAX), &attrs);
++    SrvSession *s = session_new(tenant, last_seg(config), srv_player_channel(uid), 1,
++                                srv_setting_int("room_size", 24, 2, MEMBERS_MAX), &attrs);
 +    if (!s) {
 +        map_free(&host_attrs);
 +        srv_call_end(c, ST_RESOURCE_EXHAUSTED, "too many game sessions");
@@ -17975,7 +18241,7 @@ index 0000000..fb8f922
 +        const char *why = *s->version && *v && strcmp(s->version, v) ? "another game version"
 +                          : other_build                              ? "another game build"
 +                                                                     : NULL;
-+        if (why || s->closed || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
++        if (why || s->closed || s->admin_locked || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
 +            map_free(&attrs);
 +            srv_call_end(c, why ? ST_FAILED_PRECONDITION : ST_RESOURCE_EXHAUSTED, why ? why : "room full or closed");
 +            return;
@@ -18339,7 +18605,7 @@ index 0000000..fb8f922
 +        // Admit newcomers during initial loading before the first stream,
 +        // but never put them in a previously established lobby after its
 +        // final listener has gone. Preserve 24-player initial backfill.
-+        if (s->room || s->closed || (!s->listeners && s->ever_listened) || !s->nmembers ||
++        if (s->room || s->closed || s->admin_locked || (!s->listeners && s->ever_listened) || !s->nmembers ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
 +            strcmp(s->channel, t->channel) ||
 +            strcmp(s->batching, t->batching) || srv_member(s, t->uid))
@@ -18377,7 +18643,7 @@ index 0000000..fb8f922
 +    uint64_t newest = 0;
 +    for (int i = 0; i < nsessions; i++) {
 +        SrvSession *s = sessions[i];
-+        if (s->room || s->closed || !s->listeners ||
++        if (s->room || s->closed || s->admin_locked || !s->listeners ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
 +            strcmp(s->channel, t->channel) || strcmp(s->batching, t->batching))
 +            continue;
@@ -18425,7 +18691,7 @@ index 0000000..fb8f922
 +        map_free(&attrs);
 +        return;
 +    }
-+    SrvSession *s = session_new(pick[0]->tenant, config, 0, size, &attrs);
++    SrvSession *s = session_new(pick[0]->tenant, config, pick[0]->channel, 0, size, &attrs);
 +    if (!s) return;
 +    snprintf(s->channel, sizeof s->channel, "%s", pick[0]->channel);
 +    snprintf(s->batching, sizeof s->batching, "%s", pick[0]->batching);
@@ -18580,6 +18846,7 @@ index 0000000..fb8f922
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
 +    last = now;
++    lakitu_command();
 +    matcher(now);
 +    if (now - last_abandon >= ABANDON_MS) {   // tickets whose player is gone (an unclean exit never cancels its own)
 +        last_abandon = now;
@@ -18606,6 +18873,20 @@ index 0000000..fb8f922
 +        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
 +            srv_gs_changed(sessions[i], 0);
 +    }
++    // Graceful administrative close: never free a session while it has
++    // Gamesync listeners, an open race, or unqueued score results.
++    for (int i = nsessions - 1; i >= 0; i--) {
++        SrvSession *s = sessions[i];
++        if (!s->admin_close_pending || s->listeners) continue;
++        if (s->admin_force_pending) { session_drop(i); continue; }
++        if (!srv_session_flush_scores(s)) continue;
++        int racing = 0;
++        for (int r = 0; r < RACES_MAX; r++)
++            if (s->referee.races[r].used && s->referee.races[r].open) racing = 1;
++        if (!racing) session_drop(i);
++    }
++    lakitu_command();
++    lakitu_snapshot();
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
 +        capacity_snapshot();
 +        last_capacity = now;
@@ -18631,7 +18912,7 @@ new file mode 100644
 index 0000000..2afd6d0
 --- /dev/null
 +++ b/runtime/srv/srv_session.h
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,93 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions (the protocol description, "Game sessions, rooms, room IDs, ICE" and "Matchmaking"): rooms made by
 +// a creation ticket and joined by JoinGameSession, sessions the matcher makes from matchmaking tickets, room IDs (short
@@ -18658,6 +18939,7 @@ index 0000000..2afd6d0
 +    SrvMap attrs;     // the ticket attributes of the member entry
 +    char credential[TOKEN_MAX];   // the member entry's credential, asked back by Gamesync IssueToken
 +    uint64_t seq;     // when they were matched into, created or joined it: a player's most recent session
++    int admin_kick_pending;
 +    int streams;      // their Gamesync listen streams open on it
 +    int ever_streamed; // distinguishes a pre-join seat from an explicitly departed racer
 +    uint64_t reconnect_deadline_ms; // unexpected last-stream close: delay deferred departure for reconnection
@@ -18676,7 +18958,7 @@ index 0000000..2afd6d0
 +
 +typedef struct {
 +    char id[24], tenant[64], config[64], batching[64], version[64], alias[8], creation[24], channel[8];
-+    int room, closed, max_players, nmembers, listeners, ever_listened;
++    int room, closed, admin_locked, admin_draining, admin_close_pending, admin_force_pending, max_players, nmembers, listeners, ever_listened;
 +    SrvMember members[MEMBERS_MAX];   // in member order (the first is the host)
 +    int64_t next_ussid, next_upcsid;  // rooms: numbers handed out so far, never given twice
 +    SrvMap attrs;                     // the session attributes (GameSession field 11)
@@ -18710,6 +18992,9 @@ index 0000000..2afd6d0
 +void srv_session_tick(uint64_t now_ms);
 +// Durable native score outbox before Gamesync acknowledges a finalized referee result.
 +int srv_session_flush_scores(SrvSession *s);
++
++int srv_session_admin_should_kick(const SrvSession *s, const char *uid);
++void srv_session_admin_clear_kicks(void);
 +
 +// CancelGameSessionCreationTicket has no effect: the unary catch-all's empty reply is all it needs.
 +extern const SrvMethod SRV_CREATE_ROOM, SRV_TRACK_ROOM, SRV_JOIN, SRV_GET_SESSION, SRV_CREATE_ALIAS, SRV_GET_ALIAS,

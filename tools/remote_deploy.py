@@ -51,7 +51,7 @@ ssh = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
 # The opposite live channel must already exist and use a different unit/data
 # directory. Verify before uploading or stopping anything. No implicit migration.
 other = "release" if stage == "beta" else "beta"
-other_root, other_unit, other_port = targets[other]
+other_root, other_unit, _ = targets[other]
 preflight = (
     "set -eu; "
     "test -d " + shlex.quote(expected_root) + "; "

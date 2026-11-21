@@ -52,3 +52,9 @@ def test_normal_push_does_not_activate_or_restart_channels():
     assert 'tools/queue_strato.py' in workflow
     assert 'uses: ./.github/workflows/deploy.yml' not in workflow
     assert 'uses: ./.github/workflows/channel.yml' not in workflow
+
+
+def test_deployment_probe_never_steals_live_release_udp_ports():
+    deploy = source("tools/deploy_server.py")
+    assert '"--udp-ports", ",".join(map(str, temporary_udp))' in deploy
+    assert 'sock.bind(("127.0.0.1", 0))' in deploy

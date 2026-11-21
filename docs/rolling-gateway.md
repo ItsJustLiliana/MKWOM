@@ -110,3 +110,17 @@ re-authentication/matchmaking handoff, real user-visible score acknowledgement,
 and two-PC tests with live races and friend joins. The gateway must not be
 advertised as zero-downtime gameplay until these are proven. No deploy
 workflow starts this service automatically.
+
+
+## Generation-scoped native identifiers
+
+A native server process started with `MKWOM_GENERATION_ID=blue1` now
+issues session IDs `gs-blue1-0001`, matchmaking IDs `mt-blue1-0001`, and
+creation IDs `gct-blue1-0001`. Use **different**, stable, lowercase
+alphanumeric generation identifiers (at most eight characters) in the
+respective native server systemd unit environments before bringing up both
+servers. Without this environment variable the legacy IDs are unchanged.
+This avoids collisions such as two active generation processes both issuing
+`gs-0001` and accidentally resolving the other generation's lobby during
+friend-join or handoff. It does not by itself provide authenticated routing,
+shared friends, or the gameclient's automatic results-to-lobby transition.

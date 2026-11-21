@@ -174,3 +174,13 @@ def test_channel_endpoints_must_be_distinct():
     import pytest
     with pytest.raises(ValueError, match="build queue"):
         channel_endpoint("pre-beta")
+
+
+def test_deploy_uses_nonsecret_host_and_user_environment_variables():
+    workflow = contents(".github/workflows/deploy.yml")
+    assert "DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}" in workflow
+    assert "DEPLOY_USER: ${{ vars.DEPLOY_USER }}" in workflow
+    assert "DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}" not in workflow
+    assert "DEPLOY_USER: ${{ secrets.DEPLOY_USER }}" not in workflow
+    assert "DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}" in workflow
+    assert "DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" in workflow

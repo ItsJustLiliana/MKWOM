@@ -17497,7 +17497,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1242 @@
+@@ -0,0 +1,1330 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17591,6 +17591,7 @@ index 0000000..fb8f922
 +            "\"version\":\"%s\",\"status\":\"%s\",\"capacity\":%d,"
 +            "\"player_count\":%d,\"created_at\":%lld,\"players\":[",
 +            i ? "," : "", id, channel, config, version,
++            s->admin_draining ? "draining" : s->admin_locked ? "locked" :
 +            s->closed ? "closed" : s->listeners ? "connected" : "waiting",
 +            s->max_players, s->nmembers, (long long)s->created);
 +        for (int k = 0; ok && k < s->nmembers; k++) {
@@ -17623,8 +17624,8 @@ index 0000000..fb8f922
 +    if (ok) ok = lakitu_append(doc, cap, &n,
 +        "],\"limits\":{\"beta\":{\"max_lobbies\":%d},"
 +        "\"release\":{\"max_lobbies\":%d}}}\n",
-+        srv_setting_int("beta_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX),
-+        srv_setting_int("release_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX));
++        lakitu_cap("beta"),
++        lakitu_cap("release"));
 +    if (ok) {
 +        char path[1400];
 +        if (snprintf(path, sizeof path, "%s/lakitu-native.json", srv_data_dir()) < (int)sizeof path)
@@ -17820,12 +17821,97 @@ index 0000000..fb8f922
 +    return count;
 +}
 +
++static int lakitu_beta_cap, lakitu_release_cap;
++static int lakitu_loaded;
++
++static void lakitu_limits_load(void) {
++    if (lakitu_loaded) return;
++    lakitu_loaded = 1;
++    char path[1400], text[80];
++    uint64_t size = 0;
++    if (snprintf(path, sizeof path, "%s/lakitu-limits.txt", srv_data_dir()) >= (int)sizeof path) return;
++    uint8_t *data = plat_file_read(path, &size);
++    if (data && size > 0 && size < sizeof text) {
++        memcpy(text, data, (size_t)size);
++        text[size] = 0;
++        int beta = 0, release = 0;
++        if (sscanf(text, "%d %d", &beta, &release) == 2 &&
++            beta >= 1 && beta <= SESSIONS_MAX && release >= 1 && release <= SESSIONS_MAX) {
++            lakitu_beta_cap = beta;
++            lakitu_release_cap = release;
++        }
++    }
++    free(data);
++}
++
++static int lakitu_cap(const char *channel) {
++    lakitu_limits_load();
++    if (!strcmp(channel, "beta"))
++        return lakitu_beta_cap ? lakitu_beta_cap :
++            srv_setting_int("beta_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX);
++    if (!strcmp(channel, "release"))
++        return lakitu_release_cap ? lakitu_release_cap :
++            srv_setting_int("release_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX);
++    return SESSIONS_MAX;
++}
++
 +static int channel_session_admit(const char *channel) {
-+    const char *key = !strcmp(channel, "beta") ? "beta_lobby_cap" :
-+                      !strcmp(channel, "release") ? "release_lobby_cap" : NULL;
-+    if (!key) return 1; // Legacy, unscoped behavior remains unchanged.
-+    int cap = srv_setting_int(key, SESSIONS_MAX, 1, SESSIONS_MAX);
-+    return channel_session_count(channel) < cap;
++    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 1;
++    return channel_session_count(channel) < lakitu_cap(channel);
++}
++
++// Commands are delivered in the private native data directory, by the
++// authenticated loopback gateway. Processed within the existing event loop:
++// caps and locks never race session creation or matchmaking.
++static void lakitu_command(void) {
++    char input[1400], ack[1400], limits[1400], text[160];
++    if (snprintf(input, sizeof input, "%s/lakitu-command.txt", srv_data_dir()) >= (int)sizeof input ||
++        snprintf(ack, sizeof ack, "%s/lakitu-ack.json", srv_data_dir()) >= (int)sizeof ack ||
++        snprintf(limits, sizeof limits, "%s/lakitu-limits.txt", srv_data_dir()) >= (int)sizeof limits) return;
++    uint64_t size = 0;
++    uint8_t *raw = plat_file_read(input, &size);
++    if (!raw) return;
++    plat_file_delete(input);
++    if (size >= sizeof text || size < 8) { free(raw); return; }
++    memcpy(text, raw, (size_t)size);
++    text[size] = 0;
++    free(raw);
++    char id[33] = {0}, op[16] = {0}, channel[16] = {0}, value[32] = {0}, extra[2] = {0};
++    int count = sscanf(text, "%32s %15s %15s %31s %1s", id, op, channel, value, extra);
++    if (count != 4 || strspn(id, "0123456789abcdef") != strlen(id) || strlen(id) != 32 ||
++        (strcmp(channel, "beta") && strcmp(channel, "release"))) return;
++    int ok = 0;
++    if (!strcmp(op, "cap")) {
++        char *end = NULL;
++        long next = strtol(value, &end, 10);
++        if (*value && end && !*end && next >= 1 && next <= SESSIONS_MAX) {
++            int old_beta = lakitu_beta_cap, old_release = lakitu_release_cap;
++            lakitu_limits_load();
++            if (!strcmp(channel, "beta")) lakitu_beta_cap = (int)next;
++            else lakitu_release_cap = (int)next;
++            char values[64];
++            int length = snprintf(values, sizeof values, "%d %d\n",
++                                  lakitu_cap("beta"), lakitu_cap("release"));
++            ok = length > 0 && (size_t)length < sizeof values &&
++                 plat_file_write_atomic(limits, values, (size_t)length);
++            if (!ok) { lakitu_beta_cap = old_beta; lakitu_release_cap = old_release; }
++        }
++    } else if (!strcmp(op, "lock") || !strcmp(op, "unlock") || !strcmp(op, "drain")) {
++        SrvSession *s = srv_session_find(value);
++        if (s && !strcmp(s->channel, channel)) {
++            if (!strcmp(op, "unlock") && s->admin_draining) ok = 0;
++            else {
++                s->admin_locked = strcmp(op, "unlock") != 0;
++                if (!strcmp(op, "drain")) s->admin_draining = 1;
++                ok = 1;
++            }
++        }
++    }
++    char response[100];
++    int n = snprintf(response, sizeof response, "{\\"id\\":\\"%s\\",\\"ok\\":%s}\n",
++                     id, ok ? "true" : "false");
++    if (n > 0 && (size_t)n < sizeof response) plat_file_write_atomic(ack, response, (size_t)n);
++    srv_log("Lakitu native command %s channel=%s accepted=%d", op, channel, ok);
 +}
 +
 +static SrvSession *session_new(const char *tenant, const char *config, const char *channel,
@@ -18088,7 +18174,7 @@ index 0000000..fb8f922
 +        const char *why = *s->version && *v && strcmp(s->version, v) ? "another game version"
 +                          : other_build                              ? "another game build"
 +                                                                     : NULL;
-+        if (why || s->closed || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
++        if (why || s->closed || s->admin_locked || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
 +            map_free(&attrs);
 +            srv_call_end(c, why ? ST_FAILED_PRECONDITION : ST_RESOURCE_EXHAUSTED, why ? why : "room full or closed");
 +            return;
@@ -18452,7 +18538,7 @@ index 0000000..fb8f922
 +        // Admit newcomers during initial loading before the first stream,
 +        // but never put them in a previously established lobby after its
 +        // final listener has gone. Preserve 24-player initial backfill.
-+        if (s->room || s->closed || (!s->listeners && s->ever_listened) || !s->nmembers ||
++        if (s->room || s->closed || s->admin_locked || (!s->listeners && s->ever_listened) || !s->nmembers ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
 +            strcmp(s->channel, t->channel) ||
 +            strcmp(s->batching, t->batching) || srv_member(s, t->uid))
@@ -18490,7 +18576,7 @@ index 0000000..fb8f922
 +    uint64_t newest = 0;
 +    for (int i = 0; i < nsessions; i++) {
 +        SrvSession *s = sessions[i];
-+        if (s->room || s->closed || !s->listeners ||
++        if (s->room || s->closed || s->admin_locked || !s->listeners ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
 +            strcmp(s->channel, t->channel) || strcmp(s->batching, t->batching))
 +            continue;
@@ -18693,6 +18779,7 @@ index 0000000..fb8f922
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
 +    last = now;
++    lakitu_command();
 +    matcher(now);
 +    if (now - last_abandon >= ABANDON_MS) {   // tickets whose player is gone (an unclean exit never cancels its own)
 +        last_abandon = now;
@@ -18719,6 +18806,7 @@ index 0000000..fb8f922
 +        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
 +            srv_gs_changed(sessions[i], 0);
 +    }
++    lakitu_command();
 +    lakitu_snapshot();
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
 +        capacity_snapshot();
@@ -18790,7 +18878,7 @@ index 0000000..2afd6d0
 +
 +typedef struct {
 +    char id[24], tenant[64], config[64], batching[64], version[64], alias[8], creation[24], channel[8];
-+    int room, closed, max_players, nmembers, listeners, ever_listened;
++    int room, closed, admin_locked, admin_draining, max_players, nmembers, listeners, ever_listened;
 +    SrvMember members[MEMBERS_MAX];   // in member order (the first is the host)
 +    int64_t next_ussid, next_upcsid;  // rooms: numbers handed out so far, never given twice
 +    SrvMap attrs;                     // the session attributes (GameSession field 11)

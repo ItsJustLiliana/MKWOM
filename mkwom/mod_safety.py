@@ -7,6 +7,7 @@ launch when such mods are enabled or a code rebuild is pending; offline is
 always allowed and neither mod metadata nor user settings are modified.
 """
 import json
+import os
 from pathlib import Path
 
 from .cli import ini_values
@@ -14,7 +15,8 @@ from .cli import ini_values
 
 def online_code_mods(game: Path) -> list[str]:
     settings = ini_values(game / "mkw.ini")
-    enabled = settings.get("MODS", "").strip()
+    # Environment variables override mkw.ini in Recomp; inspect that source too.
+    enabled = os.environ.get("MKW_MODS", settings.get("MODS", "")).strip()
     flagged = []
     if (game / "mods" / ".rebuild").exists():
         flagged.append("pending mod code rebuild")
@@ -42,7 +44,7 @@ def online_code_mods(game: Path) -> list[str]:
         except (OSError, ValueError, UnicodeError):
             flagged.append(name + " (mod metadata unreadable)")
             continue
-        if data.get("has_exefs") or data.get("patches") or data.get("image"):
+        if data.get("has_exefs") or "patches" in data or "image" in data:
             flagged.append(name)
     return flagged
 

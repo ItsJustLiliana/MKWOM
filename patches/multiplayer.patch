@@ -13570,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,538 @@
+@@ -0,0 +1,653 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13772,6 +13772,39 @@ index 0000000..721d8cb
 +    char *end;
 +    uint64_t v = strtoull(uid + 2, &end, 16);
 +    return *end || v > 999999999999ull ? 0 : v;
++}
++
++// Verify an existing refresh credential before minting another access token.
++// Only an HMAC-signed "r" token with a bounded issue time is accepted;
++// access and Gamesync tokens must never become refresh credentials.
++static void refresh_uid(const char *t, char *uid, size_t cap) {
++    uid[0] = 0;
++    const char *d1 = strchr(t, '.'), *d2 = d1 ? strchr(d1 + 1, '.') : NULL;
++    if (!d1 || !d2 || strchr(d2 + 1, '.') || strlen(d2 + 1) != 43) return;
++    uint8_t mac[32], got[40], payload[224];
++    if (!sign(t, (size_t)(d2 - t), mac) ||
++        unb64url(got, sizeof got, d2 + 1, strlen(d2 + 1)) != 32) return;
++    unsigned diff = 0;
++    for (int i = 0; i < 32; i++) diff |= mac[i] ^ got[i];
++    if (diff) return;
++    int n = unb64url(payload, sizeof payload - 1, d1 + 1, (size_t)(d2 - d1 - 1));
++    if (n <= 0) return;
++    payload[n] = 0;
++    const char *sub = strstr((const char *)payload, "\"sub\":\"u-");
++    const char *kind = strstr((const char *)payload, "\"use\":\"r\"");
++    const char *issued = strstr((const char *)payload, "\"iat\":");
++    if (!sub || !kind || !issued || strlen(sub + 7) < 19 || sub[25] != '"') return;
++    // The server's mint format is fixed; reject malformed identities and
++    // ancient tokens even though older native access tokens had no JWT exp.
++    for (int i = 2; i < 18; i++) {
++        char v = sub[7 + i];
++        if (!((v >= '0' && v <= '9') || (v >= 'a' && v <= 'f'))) return;
++    }
++    char *end = NULL;
++    int64_t iat = strtoll(issued + 6, &end, 10), now = (int64_t)time(NULL);
++    if (!end || end == issued + 6 || (*end != ',' && *end != '}') ||
++        iat <= 0 || iat > now + 300 || now - iat > 24 * 3600) return;
++    snprintf(uid, cap, "%.18s", sub + 7);
 +}
 +
 +// ---- the identity string
@@ -14108,7 +14141,89 @@ index 0000000..721d8cb
 +    srv_call_end(c, ST_OK, NULL);
 +}
 +
++// Auth/RefreshToken: an hour-long race must not die when the game rotates its
++// NPLN token. Refresh is authenticated by the signed refresh token in the
++// request, or by a verified access bearer on the same transport. The returned
++// payload has the same User + UserToken shape as the sign-in response.
++static void refresh_token(SrvCall *c, const uint8_t *msg, size_t len) {
++    char uid[24] = "";
++    PbIn in = pb_in(msg, len);
++    PbField field;
++    // The game may wrap its refresh credential in one protobuf submessage.
++    // Bound both sizes; never log credential contents or accept unsigned IDs.
++    while (pb_next(&in, &field) > 0 && !*uid) {
++        if (field.wt != PB_LEN || field.len >= TOKEN_MAX) continue;
++        char token[TOKEN_MAX];
++        memcpy(token, field.data, field.len);
++        token[field.len] = 0;
++        refresh_uid(token, uid, sizeof uid);
++        if (*uid) break;
++        PbIn nested = pb_in(field.data, field.len);
++        PbField child;
++        while (pb_next(&nested, &child) > 0 && !*uid) {
++            if (child.wt != PB_LEN || child.len >= TOKEN_MAX) continue;
++            memcpy(token, child.data, child.len);
++            token[child.len] = 0;
++            refresh_uid(token, uid, sizeof uid);
++        }
++    }
++    const char *bearer_uid = srv_call_uid(c);
++    if (*bearer_uid) {
++        // A valid access bearer may replace a missing refresh proof, but
++        // cannot be used to rotate another authenticated account's token.
++        if (*uid && strcmp(uid, bearer_uid)) {
++            srv_call_end(c, ST_PERMISSION_DENIED, "refresh token belongs to another player");
++            return;
++        }
++        if (!*uid) snprintf(uid, sizeof uid, "%s", bearer_uid);
++    }
++    uint64_t code = srv_uid_code(uid);
++    SrvAccount *account = code ? srv_account(code) : NULL;
++    if (!*uid || (code && (!account || account->banned || !account->approved)) ||
++        (mkwom_auth_required() && (!code || !account))) {
++        srv_call_end(c, ST_PERMISSION_DENIED, "valid signed refresh token required; sign in again");
++        return;
++    }
++    const char *tenant = account && *account->tenant ? account->tenant : srv_call_tenant(c);
++    if (!tenant || !*tenant || strchr(tenant, '/')) {
++        srv_call_end(c, ST_PERMISSION_DENIED, "invalid token tenant");
++        return;
++    }
++    char user[160], access[TOKEN_MAX], refresh[TOKEN_MAX];
++    snprintf(user, sizeof user, "tenants/%s/users/%s", tenant, uid);
++    if (!make_token(access, sizeof access, uid, "a", NULL) ||
++        !make_token(refresh, sizeof refresh, uid, "r", NULL)) {
++        srv_call_end(c, ST_INTERNAL, "could not refresh token");
++        return;
++    }
++    PbOut o = {0};
++    size_t m = pb_begin(&o, 1);
++    pb_str(&o, 1, user);
++    pb_str(&o, 2, "E");
++    put_now(&o, 3);
++    put_now(&o, 4);
++    pb_end(&o, m);
++    m = pb_begin(&o, 2);
++    pb_str(&o, 1, user);
++    pb_str(&o, 2, access);
++    pb_str(&o, 3, refresh);
++    size_t d = pb_begin(&o, 4);
++    pb_int64(&o, 1, 3600);
++    pb_end(&o, d);
++    pb_end(&o, m);
++    if (o.err) {
++        pb_free(&o);
++        srv_call_end(c, ST_INTERNAL, "refresh response too large");
++        return;
++    }
++    srv_call_reply(c, o.buf, o.len);
++    pb_free(&o);
++    srv_log("NPLN auth token refreshed for authenticated player");
++    srv_call_end(c, ST_OK, NULL);
++}
++
 +const SrvMethod SRV_SIGN_IN = {"Auth", "IssuePrearrangedUserToken", SRV_UNARY, 0, sign_in, NULL, NULL, NULL};
++const SrvMethod SRV_AUTH_REFRESH = {"Auth", "RefreshToken", SRV_UNARY, 0, refresh_token, NULL, NULL, NULL};
 diff --git a/runtime/srv/srv_auth.h b/runtime/srv/srv_auth.h
 new file mode 100644
 index 0000000..fd554d9
@@ -16338,7 +16453,7 @@ new file mode 100644
 index 0000000..b274f18
 --- /dev/null
 +++ b/runtime/srv/srv_methods.c
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,37 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The methods the game calls that are not plain unary catch-alls (srv_svc.h): the services, and the stream kinds of the
 +// others (the wire does not say whether a method streams; the protocol description lists them).
@@ -16347,6 +16462,7 @@ index 0000000..b274f18
 +#include "srv_session.h"
 +#include "srv_svc.h"
 +
++extern const SrvMethod SRV_AUTH_REFRESH;
 +extern const SrvMethod SRV_SIGN_IN, SRV_KEEP_ALIVE, SRV_FRIEND_USERS, SRV_PRESENCES;
 +
 +static const SrvMethod CATCH_ALL[] = {
@@ -16356,6 +16472,7 @@ index 0000000..b274f18
 +
 +// Gamesync's GetDocument names its service: Ugcstore has a GetDocument of its own (events, not served here).
 +static const SrvMethod *const SERVICES[] = {
++    &SRV_AUTH_REFRESH,
 +    &SRV_SIGN_IN,       &SRV_KEEP_ALIVE,     &SRV_FRIEND_USERS, &SRV_PRESENCES,    &SRV_CREATE_ROOM, &SRV_TRACK_ROOM,
 +    &SRV_JOIN,          &SRV_GET_SESSION,    &SRV_CREATE_ALIAS, &SRV_GET_ALIAS,    &SRV_ICE,         &SRV_CREATE_TICKET,
 +    &SRV_TRACK_TICKET,  &SRV_CANCEL_TICKET,  &SRV_GS_ISSUE,     &SRV_GS_REFRESH,   &SRV_GS_GET,      &SRV_GS_WRITE,
@@ -17533,7 +17650,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1373 @@
+@@ -0,0 +1,1376 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -18207,6 +18324,7 @@ index 0000000..fb8f922
 +    PbOut o = {0};
 +    if (!s || !*uid || strcmp(s->tenant, tenant) ||
 +        strcmp(s->channel, srv_player_channel(uid))) {
++        srv_log("friend join rejected: lobby not found or wrong tenant/channel");
 +        srv_call_end(c, ST_FAILED_PRECONDITION, "requested lobby is unavailable");
 +        return;
 +    }
@@ -18223,6 +18341,7 @@ index 0000000..fb8f922
 +        m->seq = ++member_seq;
 +    } else {
 +        if (!s->room && !session_accepting(s)) {
++            srv_log("friend join rejected: game lobby is not accepting backfill");
 +            srv_call_end(c, ST_FAILED_PRECONDITION, "lobby is not accepting players");
 +            return;
 +        }
@@ -18243,6 +18362,7 @@ index 0000000..fb8f922
 +                                                                     : NULL;
 +        if (why || s->closed || s->admin_locked || s->nmembers >= s->max_players || s->nmembers >= MEMBERS_MAX) {
 +            map_free(&attrs);
++            srv_log("friend join rejected: incompatible build/version or lobby full/closed");
 +            srv_call_end(c, why ? ST_FAILED_PRECONDITION : ST_RESOURCE_EXHAUSTED, why ? why : "room full or closed");
 +            return;
 +        }
@@ -18723,7 +18843,7 @@ index 0000000..fb8f922
 +        // actually went away; another ticket must wait for normal matchmaking.
 +        if (!m || m->streams) continue;
 +        m->seq = ++member_seq;
-+        // The old stream may have closed up to 15 seconds before the player
++        // The old stream may have closed up to 30 seconds before the player
 +        // reaches Matchmaker. Give the *new* Gamesync handshake a full grace
 +        // interval before running its deferred participation deletion. The
 +        // deadline remains bounded and is cleared when the new stream opens.
@@ -18929,7 +19049,7 @@ index 0000000..2afd6d0
 +#include "srv_value.h"
 +
 +// Gamesync tokens: GS_TOKENS_PER per player and session (a game asks again after an hour), GS_TOKENS_MAX per session.
-+enum { GAMESYNC_RECONNECT_GRACE_MS = 15000, SESSIONS_MAX = 256, MEMBERS_MAX = 32, GS_TOKENS_MAX = 128, GS_TOKENS_PER = 4, DEFERMENTS_MAX = 128,
++enum { GAMESYNC_RECONNECT_GRACE_MS = 30000, SESSIONS_MAX = 256, MEMBERS_MAX = 32, GS_TOKENS_MAX = 128, GS_TOKENS_PER = 4, DEFERMENTS_MAX = 128,
 +       DEFERMENT_BYTES = 64 << 10, DEFERMENTS_BYTES = 1 << 20 };
 +
 +typedef struct {
@@ -23163,7 +23283,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1065 @@
+@@ -0,0 +1,1092 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -23640,6 +23760,33 @@ index 0000000..b955046
 +    assert "123456789012" in accounts and accounts.rstrip().endswith("Tester")
 +    log = (server / "logs/server.log").read_text()
 +    assert f"{SIGN_IN} -> 7 friend code belongs to another emulator" in log
++    # Real HTTP/2 Auth/RefreshToken regression: the game needs a replacement
++    # after its advertised one-hour duration. A valid signed refresh token
++    # rotates both credentials without silently dropping the active player.
++    refresh_rpc = "/nn.npln.auth.v1.Auth/RefreshToken"
++    refresh_proof = token[3][0].decode()
++    call(h, 7, refresh_rpc, pb(1, refresh_proof))
++    wait(h, lambda: 7 in h.ended)
++    rotated = fields(h.data[7][5:])
++    assert fields(rotated[1][0])[1][0] == user
++    rotated_token = fields(rotated[2][0])
++    assert rotated_token[2][0].count(b".") == 2
++    assert rotated_token[3][0].count(b".") == 2
++    assert fields(rotated_token[4][0])[1][0] == 3600
++    # A changed signature, or an access credential used as a refresh proof,
++    # cannot mint new sessions without a bearer.
++    changed = refresh_proof[:-1] + ("A" if refresh_proof[-1] != "A" else "B")
++    call(h, 9, refresh_rpc, pb(1, changed))
++    wait(h, lambda: 9 in h.ended)
++    assert 9 not in h.data
++    call(h, 11, refresh_rpc, pb(1, bearer))
++    wait(h, lambda: 11 in h.ended)
++    assert 11 not in h.data
++    # An authenticated bearer also works when the game does not send a
++    # separate refresh token on its already-authenticated transport.
++    call(h, 13, refresh_rpc, b"", (("authorization", f"Bearer {bearer}"),))
++    wait(h, lambda: 13 in h.ended)
++    assert 13 in h.data
 +    h.s.close()
 +
 +

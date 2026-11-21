@@ -174,3 +174,29 @@ The previously recorded SSH fingerprint was `SHA256:2zSN2KSoMgkMh5sS338GsETc/5UR
 In GitHub `ItsJustLiliana/MKWOM → Settings → Environments → pre-beta`, put the full contents of the *new dedicated private key* in `DEPLOY_SSH_KEY`, and the verified known-hosts line in `DEPLOY_SSH_KNOWN_HOSTS`. Add the other environment secrets and variables from the configuration table above. `pre-beta` must not require manual reviewers because the queue upload is automated. The `beta` and `release` environments can require approval for promotions.
 
 Run **Actions → Test STRATO SSH access (no deployment)**. Only after that passes and you have tested multiplayer should you enable `AUTO_DEPLOY=true`. Never paste private keys or token values into issues, chats, or logs. Delete your local dedicated private key when safely stored in your GitHub encrypted secret and no longer needed for debugging.
+
+### Release promotion blocked by missing scoped-ticket enforcement
+
+The Release preflight is intentionally **fail-closed**. A failed run containing
+`Signed Beta/Release tickets must be required` means the **running Release
+process** (`mkw-lobby.service`, *not* Beta) does not have
+`MKWOM_REQUIRE_SCOPED_TICKETS=1`. An environment variable in an interactive
+SSH shell or in the Beta unit does not change the existing Release process.
+
+1. On STRATO, inspect only **variable names** and unit configuration (never
+   print keys): `systemctl --user cat mkw-lobby.service` and
+   `systemctl --user show mkw-lobby.service -p MainPID -p ActiveState`.
+2. Locate the Release unit's actual `EnvironmentFile` or systemd environment
+   override. Set `MKWOM_REQUIRE_SCOPED_TICKETS=1` there with owner-only file
+   permissions. Retain `MKWOM_ACCOUNT_ENFORCE=1` and the existing signed
+   game-ticket key; **never** substitute a newly generated key.
+3. Schedule a quiet window: modifying an environment file does **not** change
+   the running process. Restart **only** `mkw-lobby.service` after confirming
+   the Release port and any ongoing races. Leave `mkw-lobby-beta.service`
+   untouched. A restart can disconnect existing Release players.
+4. Re-run the Release preflight. It also verifies both score writer services,
+   distinct private score keys, account API health, and authenticated score
+   endpoints. Fix each reported prerequisite separately; do not weaken checks.
+
+A successful preflight does not itself prove game compatibility or justify
+promotion: verify two-PC gameplay and score separation before approving Release.

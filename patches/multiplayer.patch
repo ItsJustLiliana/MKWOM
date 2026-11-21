@@ -15796,7 +15796,6 @@ index 0000000..1a45439
 +    return 0;
 +}
 +
-
 +
 +void srv_conn_free(SrvConn *c) {
 +    // A call's close handler may reply to others (a player leaving a room tells the rest): none of those replies may

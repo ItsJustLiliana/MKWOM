@@ -93,6 +93,7 @@ def install_score_worker(root: Path, stage: Path) -> None:
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("archive", type=Path)
+    p.add_argument("--stage", choices=("beta", "release"), required=True)
     p.add_argument("--sha256", required=True)
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--unit", default="mkw-lobby.service")
@@ -103,6 +104,24 @@ def main():
     a = p.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", a.unit) or not 1024 <= a.port <= 65533:
         p.error("invalid service or port")
+    targets = {
+        "beta": (Path("/home/mkwom/projects/MKWOM-server-beta"), "mkw-lobby-beta.service", 19443),
+        "release": (Path("/home/mkwom/projects/MKWOM-server-release"), "mkw-lobby-release.service", 18443),
+    }
+    expected_root, expected_unit, expected_port = targets[a.stage]
+    if (a.root, a.unit, a.port) != (expected_root, expected_unit, expected_port):
+        p.error("Refusing shared Beta/Release service, directory or listener")
+    other = "release" if a.stage == "beta" else "beta"
+    other_root, other_unit, other_port = targets[other]
+    other_working = subprocess.check_output(
+        ["systemctl", "--user", "show", other_unit,
+         "--property=WorkingDirectory", "--value"], text=True).strip()
+    if Path(other_working) != other_root or other_root == expected_root:
+        p.error("Opposite live channel has no independent data root")
+    if subprocess.run(["systemctl", "--user", "is-active", "--quiet", other_unit]).returncode:
+        p.error("Opposite live channel is unhealthy; refusing promotion")
+    # The other service must never be stopped or have its binary/data touched.
+    # A fresh two-service migration is a prerequisite, not an implicit deploy.
     root = a.root.resolve(strict=True)
     if root == Path("/") or root == Path.home():
         p.error("root must be the dedicated server project directory")

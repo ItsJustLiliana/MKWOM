@@ -103,3 +103,16 @@ diff --git a/runtime/srv/srv_session.c b/runtime/srv/srv_session.c
      pb_varint(&o, 3, 1);
      pb_str(&o, 4, *relay ? turn_user : uid);
      pb_str(&o, 5, *relay ? turn_password : cred);
+diff --git a/tests/runtime/test_srv.py b/tests/runtime/test_srv.py
+--- a/tests/runtime/test_srv.py
++++ b/tests/runtime/test_srv.py
+@@ -682,8 +682,9 @@
+     secret = "test-relay-shared-secret-" + "a" * 32
+     (tmp_path / "settings.txt").write_text(f"turn_host=203.0.113.5\nturn_port=3479\nturn_secret={secret}\n")
+     with (tmp_path / "stderr.txt").open("w") as log:
+         process = subprocess.Popen([exe, "--server", "--host", "127.0.0.1", "--port", "18453",
++                                    "--udp-ports", "13478,13479,11025,11125,13334",
+                                     "--data", str(tmp_path), "--seconds", "30"], stderr=log)
+     try:
+         deadline = time.monotonic() + 15
+         while time.monotonic() < deadline:

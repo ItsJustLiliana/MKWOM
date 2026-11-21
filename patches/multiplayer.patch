@@ -17497,7 +17497,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1128 @@
+@@ -0,0 +1,1155 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17723,7 +17723,32 @@ index 0000000..fb8f922
 +
 +// A new session and its fixed documents (the protocol description, "Seeded documents"), in a batch the caller ends
 +// once its members are in (session_ready). NULL past SESSIONS_MAX. Takes attrs.
-+static SrvSession *session_new(const char *tenant, const char *config, int room, int max_players, SrvMap *attrs) {
++// Channel-specific admission limits: existing sessions survive a lowered cap.
++// The matched channel comes from a signed game ticket, never caller-supplied metadata.
++// Initial limits are read from the server's own settings file. Runtime admin
++// updates require a separate authenticated native control channel.
++static int channel_session_count(const char *channel) {
++    int count = 0;
++    for (int i = 0; i < nsessions; i++)
++        if (!strcmp(sessions[i]->channel, channel)) count++;
++    return count;
++}
++
++static int channel_session_admit(const char *channel) {
++    const char *key = !strcmp(channel, "beta") ? "beta_lobby_cap" :
++                      !strcmp(channel, "release") ? "release_lobby_cap" : NULL;
++    if (!key) return 1; // Legacy, unscoped behavior remains unchanged.
++    int cap = srv_setting_int(key, SESSIONS_MAX, 1, SESSIONS_MAX);
++    return channel_session_count(channel) < cap;
++}
++
++static SrvSession *session_new(const char *tenant, const char *config, const char *channel,
++                               int room, int max_players, SrvMap *attrs) {
++    if (!channel_session_admit(channel)) {
++        map_free(attrs);
++        srv_log("MKWOM %s lobby admission blocked by configured cap", channel);
++        return NULL;
++    }
 +    SrvSession *s = nsessions < SESSIONS_MAX ? calloc(1, sizeof *s) : NULL;
 +    if (!s) {
 +        map_free(attrs);
@@ -17734,6 +17759,7 @@ index 0000000..fb8f922
 +    snprintf(s->tenant, sizeof s->tenant, "%s", tenant);
 +    snprintf(s->config, sizeof s->config, "%s", config);
 +    s->room = room;
++    snprintf(s->channel, sizeof s->channel, "%s", channel);
 +    s->max_players = max_players;
 +    s->attrs = *attrs;
 +    *attrs = (SrvMap){0};
@@ -17877,7 +17903,8 @@ index 0000000..fb8f922
 +    version_of(&host_attrs, version);   // the host's attributes, the room's, else what the player last showed
 +    if (!*version) version_of(&attrs, version);
 +    if (!*version) snprintf(version, sizeof version, "%s", srv_player_version(uid));
-+    SrvSession *s = session_new(tenant, last_seg(config), 1, srv_setting_int("room_size", 24, 2, MEMBERS_MAX), &attrs);
++    SrvSession *s = session_new(tenant, last_seg(config), srv_player_channel(uid), 1,
++                                srv_setting_int("room_size", 24, 2, MEMBERS_MAX), &attrs);
 +    if (!s) {
 +        map_free(&host_attrs);
 +        srv_call_end(c, ST_RESOURCE_EXHAUSTED, "too many game sessions");
@@ -18425,7 +18452,7 @@ index 0000000..fb8f922
 +        map_free(&attrs);
 +        return;
 +    }
-+    SrvSession *s = session_new(pick[0]->tenant, config, 0, size, &attrs);
++    SrvSession *s = session_new(pick[0]->tenant, config, pick[0]->channel, 0, size, &attrs);
 +    if (!s) return;
 +    snprintf(s->channel, sizeof s->channel, "%s", pick[0]->channel);
 +    snprintf(s->batching, sizeof s->batching, "%s", pick[0]->batching);

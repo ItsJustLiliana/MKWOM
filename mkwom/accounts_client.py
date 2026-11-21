@@ -58,6 +58,22 @@ def call(path: str, body: dict | None = None, token: str | None = None,
                 raise AuthError("Account response too large")
             return json.loads(payload)
     except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            # An account ban is not a broken connection or a GitHub update error.
+            # Report the expiry, but never echo arbitrary server HTML or tokens.
+            try:
+                problem = json.loads(exc.read(4096)).get("detail", {})
+                if isinstance(problem, dict) and problem.get("code") == "account_banned":
+                    expiry = problem.get("expires_at")
+                    label = ("permanently" if expiry is None else "until " +
+                             __import__("datetime").datetime.fromtimestamp(
+                                 int(expiry), tz=__import__("datetime").timezone.utc
+                             ).strftime("%Y-%m-%d %H:%M UTC"))
+                    raise AuthError("MKWOM account banned " + label +
+                                    ". Online multiplayer is unavailable; offline play is still available.")
+            except (ValueError, TypeError, OverflowError, AttributeError):
+                pass
+            raise AuthError("MKWOM account access denied (403)") from None
         if exc.code == 401:
             raise AuthError("Incorrect login or expired session") from None
         if exc.code == 409:

@@ -92,7 +92,7 @@ def install_score_worker(root: Path, stage: Path) -> None:
 
 STAGE_TARGETS = {
     "beta": (Path("/home/mkwom/projects/MKWOM-server-beta"), "mkw-lobby-beta.service", 19443),
-    "release": (Path("/home/mkwom/projects/MKWOM-server-release"), "mkw-lobby-release.service", 18443),
+    "release": (Path("/home/mkwom/projects/MKWOM-server"), "mkw-lobby.service", 18443),
 }
 
 

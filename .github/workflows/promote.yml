@@ -18,7 +18,41 @@ concurrency:
   group: promote-strato-live-server
   cancel-in-progress: false
 jobs:
+  release-preflight:
+    if: inputs.destination == 'release'
+    runs-on: ubuntu-24.04
+    environment: pre-beta
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure pinned STRATO SSH credentials
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
+          mkdir -p "$RUNNER_TEMP/mkwom-ssh"
+          chmod 700 "$RUNNER_TEMP/mkwom-ssh"
+          printf '%s\\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+      - name: Verify both score channels before creating stable Release
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_HOST" = "31.70.192.231"
+          test "$DEPLOY_USER" = "mkwom"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \\
+            -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \\
+            -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" \\
+            "python3 -" < tools/check_release_readiness.py
   promote:
+    if: always() && (inputs.destination == 'beta' || needs.release-preflight.result == 'success')
+    needs: [release-preflight]
     runs-on: ubuntu-24.04
     environment: ${{ inputs.destination }}
     outputs:

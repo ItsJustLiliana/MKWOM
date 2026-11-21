@@ -52,7 +52,7 @@ def check_release_ready(root: Path = ROOT) -> None:
     if variables.get(b"MKWOM_ACCOUNT_ENFORCE") != b"1":
         raise RuntimeError("Native account enforcement must be explicitly enabled")
     if variables.get(b"MKWOM_REQUIRE_SCOPED_TICKETS") != b"1":
-        raise RuntimeError("Signed Beta/Release tickets must be required")
+        raise RuntimeError("Release lobby must enforce scoped signed tickets: set MKWOM_REQUIRE_SCOPED_TICKETS=1 in the mkw-lobby.service process environment, restart only Release during a maintenance window, then rerun preflight")
     if not active("mkwom-accounts.service"):
         raise RuntimeError("Account API user service is not active")
     account_env = process_environment("mkwom-accounts.service")

@@ -8610,7 +8610,7 @@ new file mode 100644
 index 0000000..9ef7855
 --- /dev/null
 +++ b/runtime/sdk/ov/net_host.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,558 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// This PC's networks and its own online server, started by mkw (net_online.h).
 +//
@@ -9174,7 +9174,7 @@ new file mode 100644
 index 0000000..e989fd6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_invite.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,71 @@
 +// Server routing invites for private networks: no directory service, account secret or room state is encoded.
 +// The checksum catches typing mistakes; it is not authentication. Access is controlled by the VPN and firewall.
 +#pragma once
@@ -9251,7 +9251,7 @@ new file mode 100644
 index 0000000..21d66b7
 --- /dev/null
 +++ b/runtime/sdk/ov/net_listen.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,49 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// When this PC's server should listen again (net_host.c net_host_listen_changed): the addresses of the network choice
 +// differ from the ones it listens on, and for good. An address added counts once it has stayed NET_LISTEN_ADD_MS, one
@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,1035 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -10347,7 +10347,7 @@ new file mode 100644
 index 0000000..48e9bb6
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,115 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server that speaks the game's online protocol (the one built into mkw, runtime/srv, or
 +// another): the settings, this player's friend code, the server's certificate and its friends API. Shared by the
@@ -12945,7 +12945,7 @@ new file mode 100644
 index 0000000..91e1aa7
 --- /dev/null
 +++ b/runtime/srv/README.md
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,54 @@
 +# runtime/srv
 +
 +The online server built into the executable, which the Online page hosts: written from a description of the protocol
@@ -13005,7 +13005,7 @@ new file mode 100644
 index 0000000..92bfe66
 --- /dev/null
 +++ b/runtime/srv/srv.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,23 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server built into the executable: `mkw.exe --server [--host ADDR]... [--port P] [--data DIR]
 +// [--seconds S]`, a process of its own (the start screen or the game starts it, and it ends with them), so a fault in it
@@ -13034,7 +13034,7 @@ new file mode 100644
 index 0000000..ed8285b
 --- /dev/null
 +++ b/runtime/srv/srv_api.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,507 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The friends API (srv_api.h), as the protocol description's "Friends HTTPS API" says: TLS 1.2+, HTTP/1.1 with
 +// keep-alive, one request at a time, JSON replies whose arrays hold flat objects with the player's own "name" before
@@ -13547,7 +13547,7 @@ new file mode 100644
 index 0000000..b39bd69
 --- /dev/null
 +++ b/runtime/srv/srv_api.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,17 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The friends API next to the game's port (gRPC port + 1, 8444): HTTPS/1.1 for our runtime's Online page, not for the
 +// game. GET /v1/ca.der (the CA, no check), GET /v1/friends, POST /v1/friends/<request|accept|decline|cancel|remove>.
@@ -13570,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,533 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -14109,7 +14109,7 @@ new file mode 100644
 index 0000000..fd554d9
 --- /dev/null
 +++ b/runtime/srv/srv_auth.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,21 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in (Auth/IssuePrearrangedUserToken) and the bearer tokens it hands out: HMAC-SHA256-signed with a key made on
 +// this PC (<data>/token.key), so a token cannot be forged and stays valid when the server starts again.
@@ -14136,7 +14136,7 @@ new file mode 100644
 index 0000000..9a9d4b9
 --- /dev/null
 +++ b/runtime/srv/srv_docs.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,465 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// A game session's Gamesync documents (srv_docs.h).
 +#include "srv_docs.h"
@@ -14607,7 +14607,7 @@ new file mode 100644
 index 0000000..ec5ccda
 --- /dev/null
 +++ b/runtime/srv/srv_docs.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,80 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// A game session's Gamesync documents (the protocol description, "Gamesync"): paths with fields (srv_value.h), the
 +// writes the game sends (Update with a field mask, Set, Delete, Transform and its session counters) and the results it
@@ -14693,7 +14693,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,667 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15366,7 +15366,7 @@ new file mode 100644
 index 0000000..1a45439
 --- /dev/null
 +++ b/runtime/srv/srv_h2.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,516 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection (srv_h2.h): TLS with Mbed TLS over a non-blocking socket, HTTP/2 with nghttp2 fed from
 +// memory (no socket of its own), and gRPC calls on its streams, handed to the services of srv_methods.c (srv_svc.h).
@@ -15888,7 +15888,7 @@ new file mode 100644
 index 0000000..34af20a
 --- /dev/null
 +++ b/runtime/srv/srv_h2.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,25 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// One player's connection to the online server's gRPC port: TLS (srv_tls.h), HTTP/2 (nghttp2) and gRPC calls on it.
 +// Run from the server's single poll loop: srv_conn_step does what the socket allows and never waits.
@@ -15919,7 +15919,7 @@ new file mode 100644
 index 0000000..de6177a
 --- /dev/null
 +++ b/runtime/srv/srv_main.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,372 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's process (srv.h): one thread, one poll loop over every socket, so no lock anywhere. UDP: the STUN
 +// answers Pia asks for on 3478 and 3479, its NAT check on 10025, 10125 and 33334. TCP: the game's gRPC port (8443 unless
@@ -16297,7 +16297,7 @@ new file mode 100644
 index 0000000..b274f18
 --- /dev/null
 +++ b/runtime/srv/srv_methods.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,35 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The methods the game calls that are not plain unary catch-alls (srv_svc.h): the services, and the stream kinds of the
 +// others (the wire does not say whether a method streams; the protocol description lists them).
@@ -16338,7 +16338,7 @@ new file mode 100644
 index 0000000..19cc58f
 --- /dev/null
 +++ b/runtime/srv/srv_net.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,43 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's sockets, the same code on Windows (Winsock) and elsewhere (BSD sockets).
 +#pragma once
@@ -16387,7 +16387,7 @@ new file mode 100644
 index 0000000..597ec51
 --- /dev/null
 +++ b/runtime/srv/srv_pb.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,238 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Protocol Buffers wire format (srv_pb.h).
 +#include "srv_pb.h"
@@ -16631,7 +16631,7 @@ new file mode 100644
 index 0000000..39bbabf
 --- /dev/null
 +++ b/runtime/srv/srv_pb.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,63 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Protocol Buffers wire format, read and written by hand: the online server (srv_*.c) has no .proto files for the
 +// game's messages, only their field numbers, so it walks fields and writes them one by one. Encoding as in
@@ -16700,7 +16700,7 @@ new file mode 100644
 index 0000000..da96a60
 --- /dev/null
 +++ b/runtime/srv/srv_presence.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,358 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.h), as the protocol description's "Presence and friends" says.
 +// Online: a stream open, or a call less than 120 s ago before any stream, or less than 15 s since the last stream
@@ -17064,7 +17064,7 @@ new file mode 100644
 index 0000000..e99ea2d
 --- /dev/null
 +++ b/runtime/srv/srv_presence.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,17 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.c): who is online (calls and open streams), the attributes each
 +// player's game publishes (PresenceService/KeepAlive), and the friend list and friends' presences streamed to each
@@ -17087,7 +17087,7 @@ new file mode 100644
 index 0000000..277e38c
 --- /dev/null
 +++ b/runtime/srv/srv_referee.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,340 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (srv_referee.h).
 +#include "srv_referee.h"
@@ -17433,7 +17433,7 @@ new file mode 100644
 index 0000000..a3fb79f
 --- /dev/null
 +++ b/runtime/srv/srv_referee.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,43 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (the protocol description, "Race referee"), entirely in a game session's Gamesync documents: a
 +// player's request document gets a result document (status 0) in the same batch, so every game sees within its 36 s
@@ -17482,7 +17482,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,1115 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -18603,7 +18603,7 @@ new file mode 100644
 index 0000000..2afd6d0
 --- /dev/null
 +++ b/runtime/srv/srv_session.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,89 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions (the protocol description, "Game sessions, rooms, room IDs, ICE" and "Matchmaking"): rooms made by
 +// a creation ticket and joined by JoinGameSession, sessions the matcher makes from matchmaking tickets, room IDs (short
@@ -18698,7 +18698,7 @@ new file mode 100644
 index 0000000..c3d8e30
 --- /dev/null
 +++ b/runtime/srv/srv_standalone.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,29 @@
 +// Linux server-only entry point. Build: uv run tools/build/server.py; no game, SDL or Vulkan is linked.
 +// The ordinary executable still uses core/boot/main.c and the full platform layer.
 +#ifdef MKW_SERVER_STANDALONE
@@ -18733,7 +18733,7 @@ new file mode 100644
 index 0000000..0dbab70
 --- /dev/null
 +++ b/runtime/srv/srv_store.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,342 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships (srv_store.h). Small tables in memory, written whole to their files
 +// after a change: a new account or friendship at once (the server ends with the game, killed with it), the "last seen"
@@ -19081,7 +19081,7 @@ new file mode 100644
 index 0000000..9488f83
 --- /dev/null
 +++ b/runtime/srv/srv_store.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,44 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's accounts and friendships, kept in <data> (srv_data_dir) as small text files written whole and
 +// atomically: accounts.tsv (one account per friend code), links.tsv (who added whom, who declined whom), settings.txt
@@ -19131,7 +19131,7 @@ new file mode 100644
 index 0000000..a2c1115
 --- /dev/null
 +++ b/runtime/srv/srv_svc.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,56 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's services and the gRPC layer (srv_h2.c) between them and the network: a table of the methods the
 +// game calls (srv_methods.c), and what a service may do on a call. Everything runs on the server's single thread.
@@ -19193,7 +19193,7 @@ new file mode 100644
 index 0000000..e2fd76c
 --- /dev/null
 +++ b/runtime/srv/srv_tls.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,273 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's TLS (srv_tls.h). Certificates as the game's servers need them: an RSA-2048 CA and a server
 +// certificate it signs for every name the game connects to (they resolve to this server: ov_net.c), SHA-256.
@@ -19472,7 +19472,7 @@ new file mode 100644
 index 0000000..6939990
 --- /dev/null
 +++ b/runtime/srv/srv_tls.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,16 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's TLS (Mbed TLS): its certificates, made on this PC the first time and kept, and the two
 +// configurations it serves with: HTTP/2 ("h2") for the game's gRPC port, HTTP/1.1 for the friends API next to it.
@@ -19494,7 +19494,7 @@ new file mode 100644
 index 0000000..4a126b1
 --- /dev/null
 +++ b/runtime/srv/srv_udp.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,67 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's UDP answers (srv_udp.h).
 +#include "srv_udp.h"
@@ -19567,7 +19567,7 @@ new file mode 100644
 index 0000000..edd0a13
 --- /dev/null
 +++ b/runtime/srv/srv_udp.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,25 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The online server's UDP answers, as pure functions of the datagram and the address it came from: the socket loop
 +// (srv_main.c) only receives and sends. Pia (the game's peer-to-peer library) asks them before a race to learn the
@@ -19598,7 +19598,7 @@ new file mode 100644
 index 0000000..b429a53
 --- /dev/null
 +++ b/runtime/srv/srv_value.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,460 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The game's attribute values as a tree (srv_value.h).
 +#include "srv_value.h"
@@ -20064,7 +20064,7 @@ new file mode 100644
 index 0000000..9b3bd2a
 --- /dev/null
 +++ b/runtime/srv/srv_value.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,107 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// The game's attribute values (MapValue) as a tree the server can change: Gamesync documents (srv_docs.c), ticket and
 +// session attributes (srv_session.c), the referee's results (srv_referee.c). Decoding normalises the way the game reads
@@ -20333,7 +20333,7 @@ new file mode 100644
 index 0000000..3e4df5e
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.cpp
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,480 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page, in the order a player needs it: who they are (name, friend code), how they play
 +// (off, hosting the server built into the game, or joining a friend's), then their friends, then LAN play through
@@ -20819,7 +20819,7 @@ new file mode 100644
 index 0000000..8ae2f1d
 --- /dev/null
 +++ b/runtime/ui/launcher/launcher_online.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,8 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// The start screen's Online page (launcher_online.cpp): this player's name and friend code, how they play (off, hosting
 +// the built-in server, joining a friend's), friend requests and friends, LAN play through Tailscale.
@@ -21079,7 +21079,7 @@ new file mode 100644
 index 0000000..a5e3e53
 --- /dev/null
 +++ b/runtime/ui/menu/online_tab.cpp
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,247 @@
 +// F1 private-server controls, using the server and client integration from PRs #353/#354 (net_online.h).
 +// Unlike the launcher page, this runs during gameplay: even interface enumeration and port probes must be off
 +// the present/replay path. One detached worker handles an action and publishes a bounded snapshot under a lock.
@@ -21332,7 +21332,7 @@ new file mode 100644
 index 0000000..0cddc0e
 --- /dev/null
 +++ b/runtime/ui/menu/online_tab.h
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,3 @@
 +// In-game server controls. Drawing only reads snapshots; network, disk and process work runs off the present path.
 +#pragma once
 +void online_tab(float scale, float bottom);
@@ -21451,7 +21451,7 @@ new file mode 100644
 index 0000000..4a93ac4
 --- /dev/null
 +++ b/tests/runtime/t_net_listen.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,58 @@
 +// When this PC's server listens again (runtime/sdk/ov/net_listen.h): the address changes of 14/11/2026, when Tailscale
 +// dropped its address for 4 s and each change restarted the server, replayed second by second with example addresses.
 +#include <stdio.h>
@@ -21515,7 +21515,7 @@ new file mode 100644
 index 0000000..d4f9347
 --- /dev/null
 +++ b/tests/runtime/t_srv.c
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,702 @@
 +// The online server's building blocks that need no network: the protobuf reader and writer (runtime/srv/srv_pb.c)
 +// against the encoding guide's examples and malformed input, the STUN reply (runtime/srv/srv_udp.c) against RFC 5769's
 +// sample addresses and Pia's NAT check against the protocol description's example, the value tree and field paths
@@ -22223,7 +22223,7 @@ new file mode 100644
 index 0000000..5b407d9
 --- /dev/null
 +++ b/tests/runtime/test_lan_peers.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,93 @@
 +"""Compile the production VPN peer helpers without the game or GPU.
 +
 +Checks address restrictions, broadcast selection, the peer limit and configuration reloads.
@@ -22322,7 +22322,7 @@ new file mode 100644
 index 0000000..23158d7
 --- /dev/null
 +++ b/tests/runtime/test_net_invite.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,71 @@
 +"""Compile the actual F1 server invite codec and check routing, typos and malformed input without a game.
 +
 +Usage: uv run pytest tests/test_net_invite.py (C compiler required; the bundled Windows compiler is supported).
@@ -22399,7 +22399,7 @@ new file mode 100644
 index 0000000..525132c
 --- /dev/null
 +++ b/tests/runtime/test_net_listen.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,28 @@
 +"""When this PC's server listens again (runtime/sdk/ov/net_listen.h): tests/runtime/t_net_listen.c, built with the C compiler
 +at hand, replays the address changes of 14/11/2026 (Tailscale's address gone for 4 s, each change restarting the server
 +and ending every player's session) and checks the server listens again only on changes that last.
@@ -22433,7 +22433,7 @@ new file mode 100644
 index 0000000..f6e3cf8
 --- /dev/null
 +++ b/tests/runtime/test_online_clock.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,63 @@
 +"""Check the real SDK clock observer without the game: Online Play's libc++ steady_clock must not enter an unset
 +console time hook. Usage: uv run pytest tests/test_online_clock.py (a C compiler is required).
 +"""
@@ -22502,7 +22502,7 @@ new file mode 100644
 index 0000000..46547e1
 --- /dev/null
 +++ b/tests/runtime/test_online_friends.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,71 @@
 +"""Check the production SDK friend-list override against cached server friends, without the game or a network.
 +
 +Why: an always-empty SDK list hid accepted server friends in the game's Friends menu.
@@ -22579,7 +22579,7 @@ new file mode 100644
 index 0000000..268aa39
 --- /dev/null
 +++ b/tests/runtime/test_online_input.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,265 @@
 +"""Exercise the real SDL F1 adapter, event queue and Online field in headless Dear ImGui.
 +
 +Why: the launcher uses SDL's ImGui backend, so launcher screenshots missed missing in-game text events and polling
@@ -22850,7 +22850,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,1065 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -24117,7 +24117,7 @@ new file mode 100644
 index 0000000..e1436a5
 --- /dev/null
 +++ b/tools/build/server.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,67 @@
 +"""Build the standalone Linux lobby server without game files, SDL, Vulkan or a graphical session.
 +
 +Why: a shared server should use only the existing service code and pinned TLS/HTTP2 libraries, not a game runtime.
@@ -24190,7 +24190,7 @@ new file mode 100644
 index 0000000..cf70fc6
 --- /dev/null
 +++ b/tools/build/srvdeps.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,134 @@
 +"""Fetch the sources of the online server's two libraries into build/srv and say how to compile them: nghttp2 (MIT,
 +HTTP/2) and Mbed TLS (Apache-2.0, TLS and the certificates the server makes for itself), linked statically into the
 +executable (runtime/srv/).
@@ -24342,7 +24342,7 @@ new file mode 100644
 index 0000000..29e7f45
 --- /dev/null
 +++ b/tools/run/host_server.py
-@@ -0,0 +1,1 @@
+@@ -0,0 +1,96 @@
 +"""Configure this user's standalone lobby and coturn services without changing other applications.
 +
 +Why: players share one Linux service; game hosts and Tailscale are not the public server's lifecycle.

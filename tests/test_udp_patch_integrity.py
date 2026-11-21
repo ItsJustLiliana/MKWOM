@@ -58,3 +58,16 @@ def test_deployment_probe_never_steals_live_release_udp_ports():
     deploy = source("tools/deploy_server.py")
     assert '"--udp-ports", ",".join(map(str, temporary_udp))' in deploy
     assert 'sock.bind(("127.0.0.1", 0))' in deploy
+
+
+def test_native_pia_nat_checks_use_beta_udp_only_for_beta_lobby():
+    patch = source("patches/isolated-udp.patch")
+    # The redirect applies to both Connect and SendTo in ov_net.c.
+    assert 'diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c' in patch
+    assert 'if (!s->on || memcmp(&h->sin_addr, s->ip, 4)) return;' in patch
+    assert 'if (s->port != 19443) return;' in patch
+    for release_port, beta_port in (
+        (3478, 13478), (3479, 13479),
+        (10025, 11025), (10125, 11125), (33334, 13334)
+    ):
+        assert f'case {release_port}: h->sin_port = htons({beta_port}); break;' in patch

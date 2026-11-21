@@ -116,3 +116,34 @@ diff --git a/tests/runtime/test_srv.py b/tests/runtime/test_srv.py
      try:
          deadline = time.monotonic() + 15
          while time.monotonic() < deadline:
+diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
+--- a/runtime/sdk/ov/ov_net.c
++++ b/runtime/sdk/ov/ov_net.c
+@@ -481,9 +481,22 @@
+ }
+ 
+-// The server's port 443 is its online port (the server listens unprivileged, 8443 by default).
+-static void redirect(struct sockaddr_in *h) {
+-    const NetServer *s = net_server();
+-    if (s->on && !memcmp(&h->sin_addr, s->ip, 4) && ntohs(h->sin_port) == 443) h->sin_port = htons(s->port);
+-}
++// Redirect official lobby traffic only when online mode targets that lobby.
++// Legacy Pia NAT checks are hardcoded in the game; Beta uses disjoint UDP
++// listener ports so it cannot accidentally probe the Release instance.
++static void redirect(struct sockaddr_in *h) {
++    const NetServer *s = net_server();
++    if (!s->on || memcmp(&h->sin_addr, s->ip, 4)) return;
++    unsigned port = ntohs(h->sin_port);
++    if (port == 443) { h->sin_port = htons(s->port); return; }
++    if (s->port != 19443) return; // Release preserves its legacy UDP routes.
++    switch (port) {
++    case 3478: h->sin_port = htons(13478); break; // STUN
++    case 3479: h->sin_port = htons(13479); break; // TURN
++    case 10025: h->sin_port = htons(11025); break; // NAT check 1
++    case 10125: h->sin_port = htons(11125); break; // NAT check 2
++    case 33334: h->sin_port = htons(13334); break; // NAT check 3
++    default: break;
++    }
++}
+ 
+ static void ret_fail(Cpu *c, int e) {

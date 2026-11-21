@@ -22969,7 +22969,7 @@ new file mode 100644
 index 0000000..b955046
 --- /dev/null
 +++ b/tests/runtime/test_srv.py
-@@ -0,0 +1,1194 @@
+@@ -0,0 +1,1234 @@
 +"""The online server (runtime/srv/). Without the network: the protobuf reader and writer against the encoding guide's
 +examples and malformed input, the STUN reply against RFC 5769's sample addresses, the NAT check, the value tree, Gamesync
 +writes and the race referee (tests/runtime/t_srv.c), built with the C compiler at hand, warnings as errors. With MKW_SRV_EXE
@@ -24164,6 +24164,46 @@ index 0000000..b955046
 +    finally:
 +        for h in clients:
 +            h.s.close()
++@pytest.mark.skipif(os.name == "nt", reason="Native Linux integration server")
++def test_generation_namespaces_native_session_ids(tmp_path: Path) -> None:
++    exe = os.environ.get("MKW_SRV_EXE")
++    if not exe:
++        pytest.skip("MKW_SRV_EXE not set")
++    port = 18454
++    env = dict(os.environ, MKWOM_GENERATION_ID="testgen")
++    with (tmp_path / "generation-server.log").open("w") as log:
++        process = subprocess.Popen(
++            [exe, "--server", "--host", "127.0.0.1", "--port", str(port),
++             "--data", str(tmp_path), "--seconds", "30"], stderr=log, env=env)
++    try:
++        deadline = time.monotonic() + 15
++        while time.monotonic() < deadline:
++            if process.poll() is not None:
++                pytest.fail((tmp_path / "generation-server.log").read_text())
++            try:
++                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
++                break
++            except OSError:
++                time.sleep(0.05)
++        h = H2(tmp_path, port=port)
++        token = signed(h, "919191919191")
++        attrs = mapmsg({"batching_key": "generation"})
++        host = pb(1, "tenants/current/users/current") + pb(2, attrs)
++        request = pb(2, f"tenants/{TENANT}/matchmakingConfigs/Private24") + pb(3, host)
++        reply = unary(h, GSS + "CreateGameSessionCreationTicket",
++                      pb(1, "tenants/current") + pb(2, request), token)
++        assert b"gct-testgen-" in reply[1][0], reply
++        tracked = unary(h, GSS + "TrackGameSessionCreationTicket", pb(1, reply[1][0]), token)
++        assert b"gs-testgen-" in fields(tracked[6][0])[1][0], tracked
++        h.s.close()
++    finally:
++        process.terminate()
++        try:
++            process.wait(timeout=5)
++        except subprocess.TimeoutExpired:
++            process.kill()
++            process.wait()
++
 diff --git a/tools/build/README.md b/tools/build/README.md
 index 3adaf6d..948c7fb 100644
 --- a/tools/build/README.md

@@ -191,6 +191,74 @@ class SetupWizard:
         self._label(self.body, label, 10, bold=True).pack(anchor="w")
         return self._input(variable, secret=secret)
 
+    def _input_changed(self, *_):
+        if hasattr(self, "next") and not self.complete:
+            self._update_continue_state()
+
+    def can_continue(self) -> bool:
+        """UI gating; advance and account service still revalidate every action."""
+        if self.busy or self.complete:
+            return False
+        if self.step == 0:
+            value = self.game.get().strip().strip('"')
+            return bool(value) and valid_game_folder(Path(value).expanduser())
+        if self.step == 1:
+            return self.action.get() in ("reinstall", "uninstall")
+        if self.step == 2:
+            return self.channel.get() in ("beta", "release")
+        if self.step == 3:
+            return bool(self.username.get().strip() and self.password.get()) or bool(token())
+        if self.step == 4:
+            value = self.game.get().strip().strip('"')
+            return (bool(value) and valid_game_folder(Path(value).expanduser())
+                    and self.channel.get() in ("beta", "release")
+                    and bool(self.username.get().strip() or token()))
+        return False
+
+    def _update_continue_state(self):
+        enabled = self.can_continue()
+        self.next.configure(state="normal" if enabled else "disabled",
+                            bg=BLUE if enabled else "#303643",
+                            fg="white" if enabled else "#8994a5",
+                            activebackground="#3c7aff" if enabled else "#303643")
+
+    def _choice(self, variable, value: str, title: str, detail: str):
+        """A blue-square radio choice with a white drawn tick, no platform glyph."""
+        selected = variable.get() == value
+        bg = "#222b3d" if selected else "#202632"
+        frame = tk.Frame(self.body, bg=bg, cursor="hand2", padx=14, pady=12,
+                         highlightthickness=1, highlightbackground=BLUE if selected else "#364153")
+        frame.pack(fill="x", pady=6)
+        mark = tk.Canvas(frame, width=25, height=25, bg=bg, highlightthickness=0)
+        mark.pack(side="left", padx=(0, 13))
+        mark.create_rectangle(3, 3, 22, 22, fill=BLUE if selected else "#1c2331",
+                              outline=BLUE if selected else "#67748b", width=2)
+        if selected:
+            mark.create_line(7, 13, 11, 17, 18, 9, fill="white", width=2.5,
+                             capstyle=tk.ROUND, joinstyle=tk.ROUND)
+        info = tk.Frame(frame, bg=bg)
+        info.pack(side="left", fill="x", expand=True)
+        headline = self._label(info, title, 11, TEXT, bold=True, bg=bg, anchor="w")
+        headline.pack(anchor="w")
+        description = self._label(info, detail, 9, MUTED, bg=bg, anchor="w")
+        description.pack(anchor="w", pady=(3, 0))
+        for element in (frame, mark, info, headline, description):
+            element.bind("<Button-1>", lambda _event, choice=value: (variable.set(choice), self.show_step()))
+
+    def open_launcher(self):
+        """Launch game after installation and close setup only if launch succeeds."""
+        if self.busy or self.completed_action != "install" or not self.complete:
+            return
+        try:
+            game = Path(self.game.get().strip().strip('"')).expanduser()
+            if not valid_game_folder(game):
+                raise ValueError("The game installation can no longer be found.")
+            launch(game)
+        except Exception as exc:
+            messagebox.showerror("Could not open launcher", str(exc))
+            return
+        self.close()
+
     def show_step(self):
         for widget in self.body.winfo_children():
             widget.destroy()

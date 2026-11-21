@@ -127,7 +127,7 @@ def snapshot() -> dict:
             "native_capacity_last_reported": capacity,
         },
         "warnings": warnings, "limits": native["limits"] if native else {},
-        "lobbies": native["lobbies"] if native else [],
+        "lobbies": [{**lobby, "server_version": version} for lobby in native["lobbies"]] if native else [],
         "players": native["players"] if native else [], "logs": [],
         "telemetry_scope": "native-read-only" if native else "process-only", "observed_at": int(time.time()),
     }

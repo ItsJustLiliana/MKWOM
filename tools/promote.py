@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 
 from versioning import LEGACY_BETA, parsed_beta, parsed_stable, next_beta, next_stable, stable_for_beta
+from candidate_store import latest_queued_candidate, download_queued_candidate
 
 candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
@@ -21,19 +22,7 @@ else:
 # With no explicit tag, Beta chooses the newest *successfully queued* build.
 # Release chooses the active Beta pointer; neither choice skips verification.
 if not candidate and destination == "beta":
-    releases = json.loads(subprocess.check_output(
-        ["gh", "release", "list", "--limit", "100", "--json", "tagName,createdAt"], text=True))
-    for item in sorted(releases, key=lambda obj: obj.get("createdAt", ""), reverse=True):
-        proposed = item.get("tagName", "")
-        if not re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}", proposed):
-            continue
-        detail = json.loads(subprocess.check_output(
-            ["gh", "release", "view", proposed, "--json", "assets"], text=True))
-        if any(asset.get("name") == "queued-strato.json" for asset in detail.get("assets", [])):
-            candidate = proposed
-            break
-    if not candidate:
-        raise ValueError("no successfully queued STRATO pre-beta candidate found")
+    candidate = latest_queued_candidate()
 if not candidate and destination == "release":
     with tempfile.TemporaryDirectory() as directory:
         subprocess.run(["gh", "release", "download", "channel-beta", "--dir", directory,
@@ -46,12 +35,7 @@ if not ((destination == "beta" and re.fullmatch(r"pre-beta-[0-9]+-[a-f0-9]{12}",
 # A candidate is eligible for Beta only after the queue upload succeeded.
 Path("dist").mkdir(exist_ok=True)
 if destination == "beta":
-    subprocess.run(["gh", "release", "download", candidate, "--dir", "dist",
-                    "--pattern", "queued-strato.json"], check=True)
-    receipt = json.loads(Path("dist/queued-strato.json").read_text())
-    if receipt != {"format": 1, "target": "strato", "candidate": candidate}:
-        raise ValueError("candidate is not verified in the STRATO pre-beta queue")
-    (Path("dist") / "queued-strato.json").unlink()
+    download_queued_candidate(candidate, Path("dist"))
 else:
     pointer = "channel-beta"
     subprocess.run(["gh", "release", "download", pointer, "--dir", "dist",
@@ -68,10 +52,15 @@ beta_exe = f"MKWOM-{candidate}.exe" if destination == "release" else raw_exe
 base_assets = [patch, "mkwom-server-linux-x64.tar.gz", "deploy_server.py",
                "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
 names = [*base_assets, beta_exe]
-args = ["gh", "release", "download", candidate, "--dir", "dist"]
-for name in names:
-    args.extend(["--pattern", name])
-subprocess.run(args, check=True)
+if destination == "release":
+    args = ["gh", "release", "download", candidate, "--dir", "dist"]
+    for name in names:
+        args.extend(["--pattern", name])
+    subprocess.run(args, check=True)
+else:
+    missing = [name for name in names if not (Path("dist") / name).is_file()]
+    if missing:
+        raise ValueError("Queued candidate artifact is missing required assets: " + ", ".join(missing))
 checks = dict(line.split("  ", 1)[::-1] for line in Path("dist/SHA256SUMS").read_text().splitlines())
 for name in names:
     if name == "SHA256SUMS":

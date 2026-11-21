@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .cli import COMMUNITY_ENDPOINT, launch, update, update_status
-from .accounts_client import AuthError, api_base, authenticate, current_user, logout, token
+from .accounts_client import AuthError, api_base, authenticate, channel_scores, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
 from .direct_launch import persist_online_settings
@@ -163,9 +163,11 @@ class Launcher:
         self.register_button.pack(side="left", padx=(8, 0))
         self.logout_button = ttk.Button(account_buttons, text="Log out", command=self.auth_logout)
         self.logout_button.pack(side="left", padx=(8, 0))
+        self.scores_button = ttk.Button(account_buttons, text="My scores", command=self.view_scores)
+        self.scores_button.pack(side="left", padx=(8, 0))
         ttk.Label(account, textvariable=self.account_status, wraplength=640).grid(
             row=2, column=0, columnspan=4, sticky="w")
-        self.auth_buttons = (self.login_button, self.register_button, self.logout_button)
+        self.auth_buttons = (self.login_button, self.register_button, self.logout_button, self.scores_button)
         self.update_auth_buttons()
         self.location.bind("<FocusOut>", lambda _event: self.refresh())
         self.channels.bind("<<ComboboxSelected>>", lambda _event: self.save_channel())
@@ -178,6 +180,8 @@ class Launcher:
             available = False
         for button in self.auth_buttons:
             button.configure(state="normal" if available else "disabled")
+        self.scores_button.configure(state="normal" if available and self.channel.get() in ("beta", "release")
+                                     else "disabled")
         if not available:
             self.account_status.set("Accounts are not yet available for this channel.")
 
@@ -300,6 +304,26 @@ class Launcher:
         if self.accounts_enabled and not self.busy:
             self.start_work(lambda: (logout(channel=self.channel.get()), "Logged out from MKWOM account.")[1],
                             self.current_folder() or Path.home(), "Logging out...")
+
+    @staticmethod
+    def score_summary(channel: str) -> str:
+        scores = channel_scores(channel)
+        # Fetch all-time totals per mode: history contains at most 50 races.
+        race = channel_scores(channel, "race")
+        knockout = channel_scores(channel, "knockout")
+        battle = channel_scores(channel, "battle")
+        return (f"{channel.title()} ratings | Race: {race['rating']} "
+                f"({race['races']} races) | Knockout Tour: {knockout['rating']} "
+                f"({knockout['races']} races) | Battle: {battle['rating']} "
+                f"({battle['races']} races). "
+                f"Overall (including legacy): {scores['total_points']:+d} Elo.")
+
+    def view_scores(self):
+        if self.accounts_enabled and not self.busy and self.channel.get() in ("beta", "release"):
+            channel = self.channel.get()
+            self.start_work(lambda: self.score_summary(channel),
+                            self.current_folder() or Path.home(),
+                            "Loading your " + channel + " race results...")
 
     def safe_update_notice(self, folder: Path, channel: str) -> str:
         try:

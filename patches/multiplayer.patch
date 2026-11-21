@@ -9306,7 +9306,7 @@ new file mode 100644
 index 0000000..18cc1ef
 --- /dev/null
 +++ b/runtime/sdk/ov/net_online.c
-@@ -0,0 +1,1031 @@
+@@ -0,0 +1,1035 @@
 +// Integrated from Gael50/mkw-recomp @ 918bbd6523729cd18636c051a1e6e62101fd155f (MIT), PR #354.
 +// Online play on a private server: settings, friend code, certificate and friends API (net_online.h).
 +// Windows does the https of the friends API with WinHTTP; the server's own certificate is pinned (its CA is the only
@@ -9688,8 +9688,12 @@ index 0000000..18cc1ef
 +    HINTERNET con = ses ? WinHttpConnect(ses, L"mkwom-api.liliananuzohra.com", 443, 0) : NULL;
 +    HINTERNET req = con ? WinHttpOpenRequest(con, L"POST", L"/game-ticket", NULL, WINHTTP_NO_REFERER,
 +                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : NULL;
-+    char body[96];
-+    int body_n = snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
++    char body[128];
++    // The installed DPAPI session carries the chosen channel.
++    const char *ticket_channel = offset == 5 ? "beta" : offset == 8 ? "release" : NULL;
++    int body_n = ticket_channel
++        ? snprintf(body, sizeof body, "{\"friend_code\":\"%s\",\"channel\":\"%s\"}", code, ticket_channel)
++        : snprintf(body, sizeof body, "{\"friend_code\":\"%s\"}", code);
 +    wchar_t headers[256];
 +    swprintf(headers, sizeof headers / sizeof *headers,
 +             L"Content-Type: application/json\r\nAuthorization: Bearer %hs\r\n", access);
@@ -9725,8 +9729,8 @@ index 0000000..18cc1ef
 +    const char *q = strchr(p, '"');
 +    if (!q || q - p < 100 || (size_t)(q - p) >= cap) goto close;
 +    for (const char *x = p; x < q; x++)
-+        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'f') ||
-+              *x == 'v' || *x == '.')) goto close;
++        if (!((*x >= '0' && *x <= '9') || (*x >= 'a' && *x <= 'z') ||
++              *x == '.')) goto close;
 +    memcpy(ticket, p, (size_t)(q - p));
 +    ticket[q - p] = 0;
 +    ok = 1;
@@ -13566,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,518 @@
+@@ -0,0 +1,533 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13899,23 +13903,38 @@ index 0000000..721d8cb
 +    if (!ticket || strlen(ticket) >= 256) return 0;
 +    char copy[256];
 +    snprintf(copy, sizeof copy, "%s", ticket);
-+    char *part[6] = {copy};
-+    for (int i = 1; i < 6; i++) {
++    int scoped = !strncmp(ticket, "v2.", 3);
++    int fields = scoped ? 7 : 6;
++    int code_idx = scoped ? 3 : 2, expiry_idx = scoped ? 4 : 3;
++    int nonce_idx = scoped ? 5 : 4, sig_idx = scoped ? 6 : 5;
++    char *part[7] = {copy};
++    for (int i = 1; i < fields; i++) {
 +        char *dot = strchr(part[i - 1], '.');
 +        if (!dot) return 0;
 +        *dot = 0;
 +        part[i] = dot + 1;
 +    }
-+    if (strchr(part[5], '.') || strcmp(part[0], "v1") ||
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (scoped) {
++        if (strcmp(part[0], "v2") || (strcmp(part[2], "beta") && strcmp(part[2], "release"))) return 0;
++        if (channel && *channel && strcmp(part[2], channel)) return 0;
++    } else {
++        if (strcmp(part[0], "v1") || (channel && *channel)) return 0;
++    }
++    if (strchr(part[sig_idx], '.') ||
 +        strlen(part[1]) != 32 || strspn(part[1], "0123456789abcdef") != 32 ||
-+        strlen(part[2]) != 12 || strspn(part[2], "0123456789") != 12 ||
-+        strlen(part[4]) != 16 || strspn(part[4], "0123456789abcdef") != 16 ||
-+        strlen(part[5]) != 64 || strspn(part[5], "0123456789abcdef") != 64) return 0;
++        strlen(part[code_idx]) != 12 ||
++        strspn(part[code_idx], "0123456789") != 12 ||
++        strlen(part[nonce_idx]) != 16 ||
++        strspn(part[nonce_idx], "0123456789abcdef") != 16 ||
++        strlen(part[sig_idx]) != 64 ||
++        strspn(part[sig_idx], "0123456789abcdef") != 64) return 0;
 +    char expected[16];
 +    snprintf(expected, sizeof expected, "%012llu", (unsigned long long)friend_code);
-+    if (strcmp(part[2], expected)) return 0;
-+    if (!*part[3] || strlen(part[3]) > 12 || strspn(part[3], "0123456789") != strlen(part[3])) return 0;
-+    int64_t expiry = strtoll(part[3], NULL, 10), now = (int64_t)time(NULL);
++    if (strcmp(part[code_idx], expected)) return 0;
++    if (!*part[expiry_idx] || strlen(part[expiry_idx]) > 12 ||
++        strspn(part[expiry_idx], "0123456789") != strlen(part[expiry_idx])) return 0;
++    int64_t expiry = strtoll(part[expiry_idx], NULL, 10), now = (int64_t)time(NULL);
 +    if (expiry <= now || expiry > now + 150) return 0;
 +    uint8_t key[32], mac[32];
 +    for (int i = 0; i < 32; i++) {
@@ -13941,8 +13960,8 @@ index 0000000..721d8cb
 +    for (int i = 0; i < 32; i++) {
 +        char hex[3];
 +        snprintf(hex, sizeof hex, "%02x", mac[i]);
-+        diff |= (unsigned)(hex[0] ^ part[5][2 * i]);
-+        diff |= (unsigned)(hex[1] ^ part[5][2 * i + 1]);
++        diff |= (unsigned)(hex[0] ^ part[sig_idx][2 * i]);
++        diff |= (unsigned)(hex[1] ^ part[sig_idx][2 * i + 1]);
 +    }
 +    memset(mac, 0, sizeof mac);
 +    if (diff) return 0;
@@ -14674,7 +14693,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,667 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15074,6 +15093,48 @@ index 0000000..7cc41f7
 +    srv_log("%s: write %d refused, %s (%zu bytes: %s%s)", s->id, n, why, len, hex, len > k ? "..." : "");
 +}
 +
++// Reject write paths for other players and server-owned referee results.
++// The protobuf oneof contains a document (update/set) or a direct path
++// (transform/delete). Decode the final oneof just as docs_write does.
++static int authorized_write_path(SrvSession *s, const char *uid, const uint8_t *bytes, size_t len) {
++    PbIn in = pb_in(bytes, len);
++    PbField field, op = {0}, name, doc;
++    int kind = 0, st;
++    while ((st = pb_next(&in, &field)) > 0)
++        if (field.num >= 1 && field.num <= 4 && field.wt == PB_LEN)
++            kind = (int)field.num, op = field;
++    if (st < 0 || !kind) return 0;
++    const uint8_t *data = op.data;
++    size_t size = op.len;
++    if (kind <= 2) {
++        if (pb_find(data, size, 1, &doc) != 1 || doc.wt != PB_LEN) return 0;
++        data = doc.data;
++        size = doc.len;
++    }
++    if (pb_find(data, size, 1, &name) != 1 || name.wt != PB_LEN) return 0;
++    char path[DOC_PATH_MAX];
++    if (!docs_path(name.data, name.len, path)) return 0;
++    if (!strncmp(path, "@@RefereeResult/", 16)) return 0;
++    // Only a participant can create their own request/report. Do not trust
++    // the owner written into a caller-controlled document path.
++    const SrvMember *m = srv_member(s, uid);
++    if (!m) return 0;
++    if (!strncmp(path, "@@RefereeRequest/", 17)) {
++        const char *v = path + 17;
++        char owned[48];
++        snprintf(owned, sizeof owned, "%lld/Request/", (long long)m->ussid);
++        return !strncmp(v, owned, strlen(owned));
++    }
++    if (!strncmp(path, "@@RefereeReport/", 16)) {
++        const char *user = strstr(path + 16, "/User/");
++        if (!user) return 0;
++        char owned[32];
++        snprintf(owned, sizeof owned, "%lld", (long long)m->ussid);
++        return !strcmp(user + 6, owned);
++    }
++    return 1;
++}
++
 +// The writes of a WriteRequest (its field 1s) from uid as one batch, then the referee; their results go in res. The
 +// caller sends the changes (srv_gs_changed).
 +static int run_writes(SrvSession *s, const char *uid, const uint8_t *msg, size_t len, PbOut *res) {
@@ -15086,7 +15147,8 @@ index 0000000..7cc41f7
 +    docs_begin(&s->docs);
 +    while (st == ST_OK && (r = pb_next(&in, &f)) > 0)
 +        if (f.num == 1 && f.wt == PB_LEN)
-+            st = ++n > WRITES_MAX ? ST_INVALID_ARGUMENT : docs_write(&s->docs, f.data, f.len, &ctx, res);
++            st = ++n > WRITES_MAX || !authorized_write_path(s, uid, f.data, f.len)
++                 ? ST_INVALID_ARGUMENT : docs_write(&s->docs, f.data, f.len, &ctx, res);
 +    if (st == ST_OK && r < 0) st = ST_INVALID_ARGUMENT;
 +    if (st == ST_INVALID_ARGUMENT) {
 +        if (n > WRITES_MAX) log_refused(s, n, "more writes than WRITES_MAX", msg, 0);
@@ -15099,6 +15161,9 @@ index 0000000..7cc41f7
 +    }
 +    if ((st = docs_end(&s->docs, now)) != ST_OK) return st;
 +    referee_batch(&s->referee, &s->docs, from, srv_ms(), now);
++    // Do not acknowledge a finished race until the per-generation outbox
++    // has durably stored the native score. Retrying is safe and idempotent.
++    if (!srv_session_flush_scores(s)) return ST_UNAVAILABLE;
 +    return ST_OK;
 +}
 +
@@ -17022,7 +17087,7 @@ new file mode 100644
 index 0000000..277e38c
 --- /dev/null
 +++ b/runtime/srv/srv_referee.c
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,340 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (srv_referee.h).
 +#include "srv_referee.h"
@@ -17275,6 +17340,8 @@ index 0000000..277e38c
 +        rank[p] = x->ranked[k] ? (double)x->rank[k] : ++top;
 +    }
 +    referee_elo(rating, rank, x->nfinal, out);
++    for (int p = 0; p < x->nfinal; p++)
++        x->elo_delta[x->final[p]] = (int)lround(out[p] - rating[p]);
 +    SrvMap f = {0}, ratings = {0}, coefs = {0};
 +    for (int p = 0; p < x->nfinal; p++) {
 +        char key[24];
@@ -17366,7 +17433,7 @@ new file mode 100644
 index 0000000..a3fb79f
 --- /dev/null
 +++ b/runtime/srv/srv_referee.h
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,43 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// MKW's race referee (the protocol description, "Race referee"), entirely in a game session's Gamesync documents: a
 +// player's request document gets a result document (status 0) in the same batch, so every game sees within its 36 s
@@ -17391,6 +17458,8 @@ index 0000000..a3fb79f
 +    uint8_t ranked[RACE_PLAYERS], retired[RACE_PLAYERS];
 +    int order[RACE_PLAYERS], norder;   // the official order: k of each index, in the order reports first listed it
 +    int final[RACE_PLAYERS], nfinal;   // at close
++    int elo_delta[RACE_PLAYERS];  // final Elo change per race-player index
++    int score_queued;            // final result saved to per-generation outbox
 +    uint64_t first_report_ms;          // 0: no report yet
 +} SrvRace;
 +
@@ -17413,7 +17482,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1054 @@
+@@ -0,0 +1,1115 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17425,6 +17494,7 @@ index 0000000..fb8f922
 +#include <string.h>
 +#include <time.h>
 +
++#include "platform/platform.h"
 +#include "srv.h"
 +#include "srv_pb.h"
 +#include "srv_presence.h"
@@ -18421,6 +18491,63 @@ index 0000000..fb8f922
 +    nsessions--;
 +}
 +
++// The native server owns score computation. A separate authenticated delivery
++// worker writes this durable, idempotent event to the account API. Never copy
++// the mutable server data store to a new generation.
++static int queue_score_result(SrvSession *session, SrvRace *race) {
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (!channel || (strcmp(channel, "beta") && strcmp(channel, "release"))) return 0;
++    if (race->score_queued || race->open || !race->nfinal) return race->score_queued;
++    char path[1600], directory[1400], document[8192];
++    if (!*race->uuid || strspn(race->uuid, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
++                          != strlen(race->uuid)) return 0;
++    // Native referee: numbered Knockout sections or regular Race; Battle classification is pending.
++    int rule = (int)map_int(&session->attrs, "rule", -1);
++    const char *game_mode = race->section >= 0 || rule == 6 ? "knockout" : rule == 5 ? "battle" : "race";
++    int n = snprintf(document, sizeof document, "{\"channel\":\"%s\",\"race_id\":\"%s\",\"game_mode\":\"%s\",\"players\":[",
++                     channel, race->uuid, game_mode);
++    if (n < 0 || (size_t)n >= sizeof document) return 0;
++    for (int p = 0; p < race->nfinal; p++) {
++        int k = race->final[p];
++        SrvAccount *account = NULL;
++        for (int j = 0; j < session->nmembers; j++) {
++            if (session->members[j].ussid == race->ussid[k]) {
++                uint64_t code = srv_uid_code(session->members[j].uid);
++                account = code ? srv_account(code) : NULL;
++                break;
++            }
++        }
++        if (!account || strlen(account->account_id) != 32 ||
++            strspn(account->account_id, "0123456789abcdef") != 32) return 0;
++        int size = snprintf(document + n, sizeof document - (size_t)n,
++                            "%s{\"account_id\":\"%s\",\"position\":%d,\"points\":%d}",
++                            p ? "," : "", account->account_id, p + 1, race->elo_delta[k]);
++        if (size < 0 || (size_t)size >= sizeof document - (size_t)n) return 0;
++        n += size;
++    }
++    if ((size_t)n + 3 >= sizeof document) return 0;
++    document[n++] = ']';
++    document[n++] = '}';
++    document[n++] = '\n';
++    if (snprintf(directory, sizeof directory, "%s/score-outbox", srv_data_dir()) >= (int)sizeof directory ||
++        snprintf(path, sizeof path, "%s/%s.json", directory, race->uuid) >= (int)sizeof path) return 0;
++    plat_file_mkdir_p(directory);
++    if (!plat_file_write_atomic(path, document, (size_t)n)) return 0;
++    race->score_queued = 1;
++    srv_log("score event queued (channel=%s race=%s)", channel, race->uuid);
++    return 1;
++}
++
++int srv_session_flush_scores(SrvSession *s) {
++    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
++    if (!channel || !*channel) return 1;  // Preserve existing non-scoring deployments.
++    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 0;
++    for (int r = 0; r < RACES_MAX; r++)
++        if (s->referee.races[r].used && !s->referee.races[r].open &&
++            !queue_score_result(s, &s->referee.races[r])) return 0;
++    return 1;
++}
++
 +void srv_session_tick(uint64_t now) {
 +    static uint64_t last, last_abandon, last_capacity;
 +    if (last && now - last < MATCH_MS) return;
@@ -18446,7 +18573,10 @@ index 0000000..fb8f922
 +    for (int i = 0; i < nsessions; i++) {   // races whose players all wait: nobody writes to close them
 +        srv_gs_tick(sessions[i], now);
 +        referee_tick(&sessions[i]->referee, &sessions[i]->docs, now, (int64_t)time(NULL));
-+        if (sessions[i]->docs.nchanged) srv_gs_changed(sessions[i], 0);
++        // A timer-closed race must never broadcast final status if the
++        // durable native outbox write failed. Retain changes for retry.
++        if (srv_session_flush_scores(sessions[i]) && sessions[i]->docs.nchanged)
++            srv_gs_changed(sessions[i], 0);
 +    }
 +    if (!last_capacity || now < last_capacity || now - last_capacity >= 60000) {
 +        capacity_snapshot();
@@ -18473,7 +18603,7 @@ new file mode 100644
 index 0000000..2afd6d0
 --- /dev/null
 +++ b/runtime/srv/srv_session.h
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,89 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions (the protocol description, "Game sessions, rooms, room IDs, ICE" and "Matchmaking"): rooms made by
 +// a creation ticket and joined by JoinGameSession, sessions the matcher makes from matchmaking tickets, room IDs (short
@@ -18550,6 +18680,8 @@ index 0000000..2afd6d0
 +void srv_session_leave(SrvSession *s, const char *uid);
 +// The matcher (each second), abandoned tickets (each 30 s), idle sessions and old tickets dropped, races closed late.
 +void srv_session_tick(uint64_t now_ms);
++// Durable native score outbox before Gamesync acknowledges a finalized referee result.
++int srv_session_flush_scores(SrvSession *s);
 +
 +// CancelGameSessionCreationTicket has no effect: the unary catch-all's empty reply is all it needs.
 +extern const SrvMethod SRV_CREATE_ROOM, SRV_TRACK_ROOM, SRV_JOIN, SRV_GET_SESSION, SRV_CREATE_ALIAS, SRV_GET_ALIAS,

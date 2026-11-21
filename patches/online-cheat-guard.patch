@@ -1,0 +1,115 @@
+diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
+--- a/runtime/core/base/cfg.c
++++ b/runtime/core/base/cfg.c
+@@ -373,7 +373,33 @@
+     return wl && *wl && x && *x ? "x11" : NULL;
+ }
+ 
+-const char *cfg_get(const char *name) {
++// MKWOM online safety: mask *all* built-in Hacks at the settings boundary,
++// regardless of ini, environment overrides or an already-open menu.
++static int mkwom_hack_setting(const char *name) {
++    if (strncmp(name, "MKW_", 4)) return 0;
++    const char *key = name + 4;
++    static const char *keys[] = {"TURBO", "TURBO_SPEED", "SKIP_MOVIES", "SEED",
++        "UNLOCK_ALL", "QUICK_RACE", "FREEZE_KEYS", "CLASSIC_GP", "CLASSIC_VS", "MODS"};
++    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++)
++        if (!strcmp(key, keys[i])) return 1;
++    return 0;
++}
++
++static int mkwom_online_hacks_blocked(void) {
++    const char *online = raw_get("MKW_ONLINE");
++    return online && *online && strcmp(online, "0");
++}
++
++static const char *mkwom_hack_disabled_value(const char *name) {
++    if (!strcmp(name, "MKW_TURBO") || !strcmp(name, "MKW_QUICK_RACE")) return "off";
++    if (!strcmp(name, "MKW_TURBO_SPEED")) return "4";
++    if (!strcmp(name, "MKW_SEED") || !strcmp(name, "MKW_MODS")) return "";
++    return "0";
++}
++
++const char *cfg_get(const char *name) {
++    if (mkwom_online_hacks_blocked() && mkwom_hack_setting(name))
++        return mkwom_hack_disabled_value(name);
+     const char *v = raw_get(name);
+     if (v || strncmp(name, PREFIX, PREFIX_LEN)) return v;
+     if (profile_of()) {
+@@ -390,8 +416,9 @@
+ 
+ int cfg_from_env(const char *name) { return getenv(name) != NULL; }
+ 
+-void cfg_set(const char *name, const char *value) {
+-    if (strncmp(name, PREFIX, PREFIX_LEN) || !value) return;
++void cfg_set(const char *name, const char *value) {
++    if (mkwom_online_hacks_blocked() && mkwom_hack_setting(name)) return;
++    if (strncmp(name, PREFIX, PREFIX_LEN) || !value) return;
+     char key[64];
+     snprintf(key, sizeof key, "%s", name + PREFIX_LEN);
+     for (char *p = key; *p; p++) *p = (char)toupper((unsigned char)*p);
+diff --git a/runtime/ui/menu/settings_tabs.cpp b/runtime/ui/menu/settings_tabs.cpp
+--- a/runtime/ui/menu/settings_tabs.cpp
++++ b/runtime/ui/menu/settings_tabs.cpp
+@@ -642,17 +642,22 @@
+ 
+ bool settings_modal(void) { return g_modal || binds_modal(); }
+ 
+-void settings_tabs(float scale, float bottom) {
+-    int step = settings_modal() || ImGui::GetIO().WantTextInput                                           ? 0
+-             : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
+-             : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
+-                                                                                                         : 0;
+-    if (step) g_tab_request = (g_tab + step + TAB_COUNT) % TAB_COUNT;
+-    if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
+-
+-    if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
+-        for (int k = 0; k < TAB_COUNT; k++) {
+-            char label[128];
++void settings_tabs(float scale, float bottom) {
++    const bool online = strcmp(cfg_value("MKW_ONLINE"), "0") != 0;
++    const int visible_tabs = online ? TAB_COUNT - 1 : TAB_COUNT;
++    if (online && g_tab == TAB_HACKS) g_tab = TAB_ONLINE;
++    if (online && g_tab_request == TAB_HACKS) g_tab_request = TAB_ONLINE;
++    int step = settings_modal() || ImGui::GetIO().WantTextInput                                           ? 0
++             : ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) || ImGui::IsKeyPressed(ImGuiKey_E, false) ? 1
++             : ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) || ImGui::IsKeyPressed(ImGuiKey_Q, false) ? -1
++                                                                                                         : 0;
++    if (step) g_tab_request = (g_tab + step + visible_tabs) % visible_tabs;
++    if (g_tab_request >= 0) g_focus_page = g_tab_request;   // the new page's first row takes the cursor
++
++    if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
++        for (int k = 0; k < TAB_COUNT; k++) {
++            if (online && k == TAB_HACKS) continue;
++            char label[128];
+             snprintf(label, sizeof label, "  %s  ###tab%d", menu_text(kTabNames[k]), k);   // the id stays per language
+             // the testing and shortcut tabs in the dim colour: the ones most players need come first and stand out
+             bool quiet = k >= TAB_ADVANCED && k != g_tab;
+diff --git a/runtime/core/hacks/freeze.c b/runtime/core/hacks/freeze.c
+--- a/runtime/core/hacks/freeze.c
++++ b/runtime/core/hacks/freeze.c
+@@ -14,7 +14,8 @@
+ static _Atomic int64_t steps;   // frames still to let through while frozen
+ static int f3_was, f4_was;
+ 
+-void freeze_set(int on, int64_t n) {
++void freeze_set(int on, int64_t n) {
++    if (cfg_bool("MKW_ONLINE")) on = 0, n = 0;
+     atomic_store(&steps, n);
+     atomic_store(&frozen, on);
+     rt_log("freeze: %s%s", on ? "frozen" : "running", on && n ? " after the next frames" : "");
+@@ -28,7 +29,13 @@
+     f3_was = f3, f4_was = f4;
+ }
+ 
+-void freeze_present(void) {
++void freeze_present(void) {
++    // Prevent a paused offline frame (or script-triggered freeze) from persisting online.
++    if (cfg_bool("MKW_ONLINE")) {
++        atomic_store(&frozen, 0);
++        atomic_store(&steps, 0);
++        return;
++    }
+     keys();
+     if (!atomic_load(&frozen)) return;
+     if (atomic_load(&steps) > 0) {

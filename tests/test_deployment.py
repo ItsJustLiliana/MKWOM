@@ -16,10 +16,12 @@ deployment = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(deployment)
 
 
-def artifact(path):
+def artifact(path, worker=False):
     files = {"mkw-server": b"new binary", "release.json": json.dumps({"format": 1, "version": "test",
              "sha256": hashlib.sha256(b"new binary").hexdigest()}).encode(), "LICENSE": b"MIT",
              "NOTICE.md": b"notice", "LICENSE.nghttp2": b"MIT", "LICENSE.mbedtls": b"Apache"}
+    if worker:
+        files["score_delivery.py"] = b"print(\'safe event delivery\')\n"
     with tarfile.open(path, "w:gz") as t:
         for name, data in files.items():
             info = tarfile.TarInfo(name)
@@ -89,3 +91,32 @@ def test_server_archive_refuses_links_and_wrong_hash(tmp_path):
     with pytest.raises(ValueError, match="checksum"):
         deployment.unpack(archive, stage, "0" * 64)
     assert deployment.unpack(archive, stage, digest)["version"] == "test"
+
+
+
+def test_server_archive_includes_optional_score_delivery_worker(tmp_path):
+    archive = tmp_path / "server.tar.gz"
+    digest = artifact(archive, worker=True)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    assert deployment.unpack(archive, stage, digest)["version"] == "test"
+    assert (stage / "score_delivery.py").is_file()
+    root = tmp_path / "project"
+    root.mkdir()
+    deployment.install_score_worker(root, stage)
+    assert (root / "tools/score_delivery.py").read_text() == "print('safe event delivery')\n"
+    # The worker gets installed but no systemd services are started by this helper.
+    assert (root / "tools/score_delivery.py").stat().st_mode & 0o777 == 0o600
+
+
+def test_worker_installer_rejects_symlink_destination(tmp_path):
+    root = tmp_path / "project"
+    root.mkdir()
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    (stage / "score_delivery.py").write_text("# safe")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "tools").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="untrusted"):
+        deployment.install_score_worker(root, stage)

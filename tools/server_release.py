@@ -23,6 +23,7 @@ def main():
                                        "sha256": hashlib.sha256(exe.read_bytes()).hexdigest()}))
         with tarfile.open(out / "mkwom-server-linux-x64.tar.gz", "w:gz") as archive:
             archive.add(exe, arcname="mkw-server")
+            archive.add(ROOT / "tools/score_delivery.py", arcname="score_delivery.py")
             archive.add(metadata, arcname="release.json")
             for name in ("LICENSE", "NOTICE.md"):
                 archive.add(ROOT / name, arcname=name)

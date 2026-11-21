@@ -1,0 +1,203 @@
+"""Verified, durable score separation across Beta/Release and server generations."""
+import pytest
+from fastapi.testclient import TestClient
+
+from server import accounts
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(accounts, "DB_PATH", tmp_path / "score-accounts.sqlite3")
+    monkeypatch.setenv("MKWOM_SCORE_BETA_KEY", "ac" * 32)
+    monkeypatch.setenv("MKWOM_SCORE_RELEASE_KEY", "bd" * 32)
+    accounts._attempts.clear()
+    return TestClient(accounts.app)
+
+
+def register(client, username):
+    response = client.post("/register", json={"username": username, "password": "very-secure-test-password"})
+    assert response.status_code == 200, response.text
+    token = response.json()["access_token"]
+    account = client.get("/me", headers={"Authorization": f"Bearer {token}"}).json()["id"]
+    return token, account
+
+
+def publish(client, channel, race_id, players, *, key=None):
+    return client.post("/internal/race-result",
+                       headers={"X-MKWOM-Score-Key": key if key is not None else ("bd" * 32 if channel == "release" else "ac" * 32)},
+                       json={"channel": channel, "race_id": race_id, "game_mode": "race", "players": players})
+
+
+def scores(client, token, channel):
+    return client.get("/scores", params={"channel": channel},
+                      headers={"Authorization": "Bearer " + token})
+
+
+def test_one_account_has_separate_beta_and_release_scores(client):
+    token, uid = register(client, "PlayerAlpha")
+    player = [{"account_id": uid, "position": 1, "points": 25}]
+    beta = publish(client, "beta", "same-race-id-1001", player)
+    assert beta.status_code == 200, beta.text
+    assert publish(client, "release", "same-race-id-1001",
+                   [{"account_id": uid, "position": 1, "points": 10}]).status_code == 200
+    beta_score = scores(client, token, "beta").json()
+    release_score = scores(client, token, "release").json()
+    assert beta_score["account_id"] == release_score["account_id"] == uid
+    assert beta_score["total_points"] == 0  # Solo race cannot manufacture Elo
+    assert release_score["total_points"] == 0
+    assert beta_score["races"] == release_score["races"] == 1
+
+
+def test_idempotent_replay_and_conflicting_retry_rejected_after_db_reopen(client):
+    token, uid = register(client, "PlayerBravo")
+    player = [{"account_id": uid, "position": 1, "points": 35}]
+    assert publish(client, "beta", "result-1000123", player).json() == {"accepted": True, "duplicate": False}
+    assert publish(client, "beta", "result-1000123", player).json() == {"accepted": True, "duplicate": True}
+    assert publish(client, "beta", "result-1000123",
+                   [{"account_id": uid, "position": 1, "points": 99}]).status_code == 409
+    assert scores(client, token, "beta").json()["total_points"] == 0
+    # Other channels are never affected by Beta retries.
+    assert scores(client, token, "release").json()["races"] == 0
+
+
+def test_ingestion_requires_server_secret_and_approved_channel(client):
+    token, uid = register(client, "PlayerCharlie")
+    players = [{"account_id": uid, "position": 1, "points": 15}]
+    assert publish(client, "beta", "result-123456789", players, key="invalid").status_code == 403
+    assert client.post("/internal/race-result", json={"channel": "beta",
+                       "race_id": "result-123456789", "game_mode": "race", "players": players}).status_code == 403
+    assert publish(client, "pre-beta", "result-123456789", players).status_code == 422
+    assert scores(client, token, "beta").json()["races"] == 0
+    assert scores(client, token, "pre-beta").status_code == 422
+    assert client.get("/scores", params={"channel": "beta"}).status_code == 401
+
+
+def test_invalid_participants_never_commit_partial_result(client):
+    token, uid = register(client, "PlayerDelta")
+    invalid = [{"account_id": uid, "position": 1, "points": 40},
+               {"account_id": "f" * 32, "position": 2, "points": 10}]
+    assert publish(client, "beta", "result-123456789", invalid).status_code == 422
+    assert scores(client, token, "beta").json()["races"] == 0
+    assert publish(client, "beta", "result-123456789", [invalid[0]]).status_code == 200
+
+
+def test_distinct_player_scores_and_logout_access(client):
+    token1, uid1 = register(client, "PlayerEcho")
+    token2, uid2 = register(client, "PlayerFoxtrot")
+    players = [{"account_id": uid1, "position": 1, "points": 30},
+               {"account_id": uid2, "position": 2, "points": 20}]
+    assert publish(client, "release", "result-11112222", players).status_code == 200
+    assert scores(client, token1, "release").json()["total_points"] == 12
+    assert scores(client, token2, "release").json()["total_points"] == -12
+    assert publish(client, "release", "result-11112223", players + [players[0]]).status_code == 422
+    client.post("/logout", headers={"Authorization": "Bearer " + token1})
+    assert scores(client, token1, "release").status_code == 401
+
+
+def test_beta_server_key_cannot_write_release_or_read_other_accounts(client):
+    token, uid = register(client, "PlayerGolf")
+    players = [{"account_id": uid, "position": 1, "points": 100}]
+    assert publish(client, "release", "race-987654321", players, key="ac" * 32).status_code == 403
+    assert publish(client, "release", "race-987654321", players).status_code == 200
+    assert scores(client, token, "release").json()["total_points"] == 0
+    assert scores(client, token, "beta").json()["total_points"] == 0
+
+
+def test_game_modes_are_isolated_within_each_channel(client):
+    token, uid = register(client, "ModeIsolated")
+    player = [{"account_id": uid, "position": 1, "points": 12}]
+    assert publish(client, "beta", "mode-isolated-0001", player).status_code == 200
+    event = {"channel": "beta", "game_mode": "knockout",
+             "race_id": "mode-isolated-0002", "players": player}
+    assert client.post("/internal/race-result", json=event,
+                       headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
+    h = {"Authorization": "Bearer " + token}
+    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["races"] == 1
+    assert client.get("/scores?channel=release&game_mode=knockout", headers=h).json()["races"] == 0
+    battle = {**event, "race_id": "mode-isolated-0003", "game_mode": "battle"}
+    assert client.post("/internal/race-result", json=battle, headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 200
+    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=battle", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=release&game_mode=battle", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=beta&game_mode=race", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=beta&game_mode=knockout", headers=h).json()["rating"] == 3000
+    assert client.get("/scores?channel=beta&game_mode=unknown", headers=h).status_code == 422
+    assert client.post("/internal/race-result", json={**event, "game_mode": "race"},
+                       headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 409
+    assert client.post("/internal/race-result", json={k: v for k, v in event.items() if k != "game_mode"},
+                       headers={"X-MKWOM-Score-Key": "ac" * 32}).status_code == 422
+
+
+def test_ratings_are_computed_from_private_mode_ledger_not_submitted_points(client):
+    token_a, a = register(client, "IsolatedAlpha")
+    token_b, b = register(client, "IsolatedBeta")
+    headers = {"Authorization": "Bearer " + token_a}
+    def submit(channel, mode, race, winner, loser):
+        supplied = {"channel": channel, "game_mode": mode, "race_id": race,
+                    "players": [
+                        {"account_id": winner, "position": 1, "points": 100000},
+                        {"account_id": loser, "position": 2, "points": 100000}]}
+        key = "ac" * 32 if channel == "beta" else "bd" * 32
+        result = client.post("/internal/race-result", json=supplied,
+                             headers={"X-MKWOM-Score-Key": key})
+        assert result.status_code == 200, result.text
+    def rating(channel, mode):
+        result = client.get("/scores", params={"channel": channel, "game_mode": mode}, headers=headers)
+        assert result.status_code == 200, result.text
+        return result.json()["rating"]
+    submit("beta", "race", "secure-elo-race-0001", a, b)
+    assert rating("beta", "race") == 3012
+    assert rating("beta", "knockout") == 3000
+    assert rating("beta", "battle") == 3000
+    assert rating("release", "race") == 3000
+    submit("beta", "knockout", "secure-elo-ko-00002", b, a)
+    submit("beta", "battle", "secure-elo-btl-0003", a, b)
+    submit("release", "race", "secure-elo-rel-0004", b, a)
+    assert rating("beta", "race") == 3012
+    assert rating("beta", "knockout") == 2988
+    assert rating("beta", "battle") == 3012
+    assert rating("release", "race") == 2988
+    # The second Race uses A's rating 3012 and B's 2988, not a client-reported
+    # score or the winner's score from another game mode.
+    submit("beta", "race", "secure-elo-race-0005", b, a)
+    assert rating("beta", "race") == 2999
+    assert rating("beta", "knockout") == 2988
+    assert client.get("/scores", params={"channel": "beta", "game_mode": "race"},
+                      headers={"Authorization": "Bearer " + token_b}).json()["rating"] == 3001
+
+
+def test_scored_solo_race_is_zero_and_retry_does_not_inflate(client):
+    token, uid = register(client, "SoloNoFarm")
+    player = [{"account_id": uid, "position": 1, "points": 100000}]
+    assert publish(client, "beta", "solo-no-farm-000001", player).status_code == 200
+    assert publish(client, "beta", "solo-no-farm-000001", player).json()["duplicate"] is True
+    assert scores(client, token, "beta").json()["races"] == 1
+    assert client.get("/scores?channel=beta&game_mode=race",
+                      headers={"Authorization": "Bearer " + token}).json()["rating"] == 3000
+
+
+def test_central_receipt_requires_committed_result_and_participant_session(client):
+    token_a, a = register(client, "ReceiptAlpha")
+    token_b, b = register(client, "ReceiptBravo")
+    h_a = {"Authorization": "Bearer " + token_a}
+    h_b = {"Authorization": "Bearer " + token_b}
+    params = {"channel": "beta", "race_id": "receipt-race-20001"}
+    assert client.get("/race-receipt", params=params, headers=h_a).status_code == 404
+    assert publish(client, "beta", params["race_id"],
+                   [{"account_id": a, "position": 1, "points": 100000}]).status_code == 200
+    receipt = client.get("/race-receipt", params=params, headers=h_a)
+    assert receipt.status_code == 200, receipt.text
+    data = receipt.json()
+    assert data["committed"] is True
+    assert data["channel"] == "beta" and data["race_id"] == params["race_id"]
+    assert data["game_mode"] == "race"
+    assert len(data["payload_hash"]) == 64
+    assert data["rating_delta"] == 0
+    assert data["position"] == 1
+    assert client.get("/race-receipt", params=params, headers=h_b).status_code == 404
+    assert client.get("/race-receipt", params={"channel": "release", "race_id": params["race_id"]},
+                      headers=h_a).status_code == 404
+    assert client.get("/race-receipt", params=params).status_code == 401
+    assert client.get("/race-receipt", params={"channel": "pre-beta", "race_id": params["race_id"]},
+                      headers=h_a).status_code == 422

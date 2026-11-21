@@ -73,3 +73,27 @@ def test_game_ticket_requires_configured_secret_and_login(client, monkeypatch):
     assert hmac.compare_digest(signature, parts[5])
     client.post("/logout", headers=auth)
     assert client.post("/game-ticket", json=body, headers=auth).status_code == 401
+
+
+
+def test_signed_ticket_is_bound_to_explicit_beta_or_release_channel(client, monkeypatch):
+    import hashlib
+    import hmac
+
+    monkeypatch.setenv("MKWOM_GAME_TICKET_KEY", "ab" * 32)
+    created = client.post("/register", json={
+        "username": "ChannelTicketPlayer", "password": "strong-unique-password-123"})
+    token = created.json()["access_token"]
+    auth = {"Authorization": "Bearer " + token}
+    for channel in ("beta", "release"):
+        resp = client.post("/game-ticket", json={"friend_code": "012345678901", "channel": channel},
+                           headers=auth)
+        assert resp.status_code == 200, resp.text
+        ticket = resp.json()["ticket"]
+        pieces = ticket.split(".")
+        assert pieces[0] == "v2" and pieces[2] == channel and len(pieces) == 7
+        calculated = hmac.new(bytes.fromhex("ab" * 32), ".".join(pieces[:-1]).encode("ascii"),
+                              hashlib.sha256).hexdigest()
+        assert hmac.compare_digest(calculated, pieces[-1])
+    assert client.post("/game-ticket", json={
+        "friend_code": "012345678901", "channel": "pre-beta"}, headers=auth).status_code == 422

@@ -43,3 +43,45 @@ def test_tokens_stored_in_system_keyring(monkeypatch):
     assert result["username"] == "tester"
     assert accounts_client.token() == token
     assert seen == [("/login", None, "pre-beta"), ("/me", token, "pre-beta")]
+
+
+
+def test_client_reads_scores_only_from_explicit_channel(monkeypatch):
+    monkeypatch.setattr(accounts_client, "token", lambda: "a" * 64)
+    monkeypatch.setenv("MKWOM_ACCOUNTS_URL", "https://accounts.example.com")
+    observed = []
+
+    class Response:
+        status = 200
+
+        def read(self, limit):
+            return b'{"channel":"beta","game_mode":null,"account_id":"abc","total_points":20,"races":2,"history":[]}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Opener:
+        def open(self, request, timeout):
+            observed.append((request.full_url, request.get_header("Authorization")))
+            return Response()
+
+    monkeypatch.setattr(accounts_client.urllib.request, "build_opener", lambda *_: Opener())
+    assert accounts_client.channel_scores("beta")["total_points"] == 20
+    assert observed == [("https://accounts.example.com/scores?channel=beta", "Bearer " + "a" * 64)]
+    with pytest.raises(accounts_client.AuthError):
+        accounts_client.channel_scores("beta", "knockout")  # response is for all modes, not Knockout
+    with pytest.raises(accounts_client.AuthError):
+        accounts_client.channel_scores("beta", "invalid")
+    with pytest.raises(accounts_client.AuthError):
+        accounts_client.channel_scores("pre-beta")
+    with pytest.raises(accounts_client.AuthError):
+        accounts_client.channel_scores("release")  # cross-channel API response rejected
+
+
+def test_client_scores_require_login(monkeypatch):
+    monkeypatch.setattr(accounts_client, "token", lambda: None)
+    with pytest.raises(accounts_client.AuthError, match="Log in"):
+        accounts_client.channel_scores("beta")

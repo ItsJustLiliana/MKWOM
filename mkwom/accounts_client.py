@@ -1,5 +1,6 @@
 """HTTPS account client for the graphical launcher. Secrets live in OS credential storage."""
 import json
+from datetime import datetime, timezone
 import os
 import re
 import urllib.error
@@ -58,6 +59,23 @@ def call(path: str, body: dict | None = None, token: str | None = None,
                 raise AuthError("Account response too large")
             return json.loads(payload)
     except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            # Describe account bans without exposing opaque server responses.
+            try:
+                problem = json.loads(exc.read(4096)).get("detail", {})
+            except (ValueError, TypeError, AttributeError):
+                problem = {}
+            if isinstance(problem, dict) and problem.get("code") == "account_banned":
+                expiry = problem.get("expires_at")
+                try:
+                    label = ("permanently" if expiry is None else "until " +
+                             datetime.fromtimestamp(int(expiry), tz=timezone.utc)
+                             .strftime("%Y-%m-%d %H:%M UTC"))
+                except (ValueError, TypeError, OverflowError, OSError):
+                    label = "temporarily"
+                raise AuthError("MKWOM account banned " + label +
+                                ". Online multiplayer is unavailable; offline play is still available.") from None
+            raise AuthError("MKWOM account access denied (403)") from None
         if exc.code == 401:
             raise AuthError("Incorrect login or expired session") from None
         if exc.code == 409:

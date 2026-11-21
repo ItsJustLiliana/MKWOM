@@ -7,11 +7,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 import zipfile
 
 from . import __version__
+from .build_identity import BUILD_SHA
 from .delta import sha
 from .installer import install, uninstall, read_json, json_write, game_closed, verify
 
@@ -61,7 +63,16 @@ def fetch_channel(channel: str) -> dict:
     """Fetch a channel manifest without changing the installation."""
     if channel not in CHANNELS:
         raise ValueError("unsupported update channel")
-    release = json.loads(download(f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
+    try:
+        release = json.loads(download(
+            f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise ValueError(
+                f"The {channel} update channel has not been activated (GitHub 404). "
+                "Internal pre-beta builds never activate multiplayer automatically."
+            ) from None
+        raise
     assets = [a for a in release["assets"] if a["name"] == "channel.json"]
     if len(assets) != 1:
         raise ValueError("channel is not published yet")
@@ -75,16 +86,20 @@ def update_status(game: Path, channel: str) -> dict:
     """Check for updates without modifying or launching the game."""
     manifest = fetch_channel(channel)
     installed = read_json(game / ".mkwom/installed.json", {})
+    upstream_installer = manifest.get("installer_build_sha")
+    build_stale = bool(upstream_installer) and upstream_installer != BUILD_SHA
     return {"installed": installed.get("version"), "available": manifest["version"],
-            "patcher_update": manifest.get("installer_version") != __version__,
+            "patcher_update": manifest.get("installer_version") != __version__ or build_stale,
             "patch_update": installed.get("version") != manifest["version"], "channel": channel}
 
 
 def update(game: Path, channel: str, *, force: bool = False):
     game_closed()
     manifest = fetch_channel(channel)
-    if manifest.get("installer_version") != __version__:
-        raise ValueError("a new patcher is required; download it from the repository Releases page")
+    expected_build = manifest.get("installer_build_sha")
+    if (manifest.get("installer_version") != __version__ or
+            (expected_build and expected_build != BUILD_SHA)):
+        raise ValueError("a new patcher is required; download the latest MKWOM Setup EXE from GitHub Releases")
     old = read_json(game / ".mkwom/installed.json", {})
     if old.get("version") == manifest["version"] and not force:
         verify(game, old)
@@ -117,6 +132,8 @@ def launch(game: Path):
     # Refuse anonymous sessions for both GUI and CLI launch paths.
     # The native server must independently enforce auth before public release.
     from .accounts_client import AuthError, current_user
+    from .mod_safety import require_unmodded_code_online
+    require_unmodded_code_online(game)
     settings = read_json(game / ".mkwom/settings.json", {})
     profile = current_user(settings.get("channel", "release"))
     if not profile or not profile.get("id"):
@@ -133,6 +150,28 @@ def launch(game: Path):
     # The wrapper owns patch updates; the upstream in-game updater would replace the patched runtime.
     subprocess.Popen([str(game / "mkw.exe"), "--launcher"], cwd=game, env=env)
     print("Started MKWOM.")
+
+
+
+def launch_offline(game: Path):
+    """Start the existing Recomp runtime without touching network or MKWOM credentials.
+
+    This is the recovery path after a failed account/update request. Never erase
+    the saved account or patch, and never enable multiplayer in this process.
+    Normal standalone singleplayer mods remain available.
+    """
+    game = game.resolve()
+    if not (game / "mkw.exe").is_file():
+        raise ValueError("The game folder no longer contains mkw.exe")
+    game_closed()
+    env = dict(os.environ)
+    env.update(MKW_ONLINE="0", MKW_SERVER_HOST="0", MKWOM_MANAGED="1",
+               MKW_UPDATE_CHECK="0")
+    # The port's config resolves environment overrides before mkw.ini; offline
+    # wins even when the installed MKWOM INI defaults to ONLINE=1.
+    subprocess.Popen([str(game / "mkw.exe"), "--launcher"], cwd=game, env=env)
+    print("Started Recomp offline. Online matchmaking and score submissions are disabled.")
+
 
 
 def main(argv=None):

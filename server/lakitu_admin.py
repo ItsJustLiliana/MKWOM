@@ -10,18 +10,23 @@ import hmac
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
+from contextlib import closing
 
 from fastapi import FastAPI, Header, HTTPException, Body
 from .lakitu_controls import send as native_send
+from . import accounts, moderation
 from fastapi.responses import JSONResponse
 
 app = FastAPI(title="MKWOM Lakitu Observer", docs_url=None, redoc_url=None, openapi_url=None)
 SERVICE = "mkw-lobby.service"
 ROOT = Path(os.environ.get("MKWOM_ADMIN_SERVER_ROOT", "/home/mkwom/projects/MKWOM-server"))
 TOKEN_FILE = Path(os.environ.get("MKWOM_ADMIN_TOKEN_FILE", str(Path.home() / ".config/mkwom/lakitu-admin.token")))
+ACCOUNT_DB = Path(os.environ.get("MKWOM_ADMIN_ACCOUNTS_DB",
+    "/home/mkwom/.local/share/mkwom-accounts/accounts.sqlite3"))
 CAPACITY_RE = re.compile(
     r"capacity: sessions=(\d+)/(\d+) active=(\d+) rooms=(\d+) matchmaking=(\d+) "
     r"members=(\d+) listeners=(\d+) largest=(\d+)/(\d+) searching=(\d+)/(\d+)"
@@ -33,7 +38,9 @@ def authorize(authorization: str | None) -> None:
         raise HTTPException(401, "Administrator authentication required")
     try:
         stat = TOKEN_FILE.stat()
-        if stat.st_mode & 0o077:
+        # POSIX mode bits are meaningful on the STRATO Linux server only.
+        # Windows CI uses ACLs and chmod(0600) cannot reproduce Unix modes.
+        if os.name == "posix" and stat.st_mode & 0o077:
             raise RuntimeError("token file permissions must be 0600")
         secret = TOKEN_FILE.read_text(encoding="utf-8").strip()
     except (OSError, RuntimeError):
@@ -174,6 +181,184 @@ def disconnect_player(channel: str, session_id: str,
     state = snapshot()
     enabled = state["telemetry_scope"] == "native-read-only" and state["status"] == "healthy"
     return native_send(ROOT, "kick", channel, session_id, enabled)
+
+
+
+# Moderation uses the real, persistent account SQLite store. The admin gateway
+# remains behind the existing independent bearer token and Cloudflare Access;
+# no moderator mutation route is added to the public account API.
+_ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
+
+
+def account_id_or_422(value: str) -> str:
+    if not _ACCOUNT.fullmatch(value):
+        raise HTTPException(422, "Invalid account ID")
+    return value
+
+
+def reject_unexpected(body: dict, fields: set[str]) -> None:
+    if not isinstance(body, dict) or set(body) != fields:
+        raise HTTPException(422, "Invalid moderation request fields")
+
+
+@app.get("/v1/moderation/accounts")
+def moderation_accounts(search: str = "", limit: int = 50,
+                        authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if len(search) > 48 or not 1 <= limit <= 100:
+        raise HTTPException(422, "Invalid account search")
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db:
+        rows = db.execute(
+            "SELECT id,username FROM users WHERE username LIKE ? OR id LIKE ? ORDER BY username LIMIT ?",
+            (f"%{search.casefold()}%", f"%{search.casefold()}%", limit),
+        ).fetchall()
+        return JSONResponse({"accounts": [{"id": uid, "username": name} for uid, name in rows]},
+                            headers={"Cache-Control": "no-store"})
+
+
+@app.get("/v1/moderation/bans")
+def list_bans(search: str = "", status: str = "active", limit: int = 100,
+              authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if len(search) > 48 or status not in ("active", "all") or not 1 <= limit <= 200:
+        raise HTTPException(422, "Invalid ban list filter")
+    now = int(time.time())
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db:
+        rows = db.execute(
+            """SELECT b.user_id,u.username,b.created_at,b.expires_at,b.reason
+               FROM account_bans b JOIN users u ON u.id=b.user_id
+               WHERE (u.username LIKE ? OR b.user_id LIKE ?)
+               AND (?='all' OR b.expires_at IS NULL OR b.expires_at>?)
+               ORDER BY b.created_at DESC LIMIT ?""",
+            (f"%{search.casefold()}%", f"%{search.casefold()}%", status, now, limit),
+        ).fetchall()
+        return JSONResponse({"bans": [
+            {"account_id": uid, "username": username, "created_at": created,
+             "expires_at": expiry, "permanent": expiry is None,
+             "active": expiry is None or expiry > now, "reason": reason}
+            for uid, username, created, expiry, reason in rows]},
+            headers={"Cache-Control": "no-store"})
+
+
+@app.put("/v1/moderation/bans/{account_id}")
+def ban_account(account_id: str, body: dict = Body(...),
+                authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    account_id_or_422(account_id)
+    reject_unexpected(body, {"duration_seconds", "reason"})
+    duration, reason = body["duration_seconds"], body["reason"]
+    # Null duration = permanent. Never treat 0/negative/bool as permanent.
+    if (duration is not None and (type(duration) is not int or
+                                  not 60 <= duration <= 315360000)):
+        raise HTTPException(422, "Ban duration must be 60 seconds to 10 years or null for permanent")
+    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 200:
+        raise HTTPException(422, "Ban reason must be 1-200 characters")
+    now = int(time.time())
+    expiry = None if duration is None else now + duration
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db, db:
+        if not db.execute("SELECT 1 FROM users WHERE id=?", (account_id,)).fetchone():
+            raise HTTPException(404, "Account not found")
+        db.execute("""INSERT INTO account_bans(user_id,created_at,expires_at,reason)
+                      VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+                      created_at=excluded.created_at,expires_at=excluded.expires_at,
+                      reason=excluded.reason""",
+                   (account_id, now, expiry, reason.strip()))
+        moderation.record_action(db, "ban", account_id, "permanent" if duration is None else str(duration))
+    return JSONResponse({"ok": True, "account_id": account_id, "expires_at": expiry},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/v1/moderation/bans/{account_id}")
+def unban_account(account_id: str, authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    account_id_or_422(account_id)
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db, db:
+        cur = db.execute("DELETE FROM account_bans WHERE user_id=?", (account_id,))
+        if not cur.rowcount:
+            raise HTTPException(404, "Ban not found")
+        moderation.record_action(db, "unban", account_id, "")
+    return {"ok": True}
+
+
+@app.patch("/v1/moderation/accounts/{account_id}/name")
+def rename_account(account_id: str, body: dict = Body(...),
+                   authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    account_id_or_422(account_id)
+    reject_unexpected(body, {"username"})
+    if not isinstance(body["username"], str):
+        raise HTTPException(422, "Invalid username")
+    newname = accounts.normalize_username(body["username"])
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db, db:
+        moderation.assert_name_allowed(db, newname)
+        if not db.execute("SELECT 1 FROM users WHERE id=?", (account_id,)).fetchone():
+            raise HTTPException(404, "Account not found")
+        try:
+            db.execute("UPDATE users SET username=? WHERE id=?", (newname, account_id))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "Username already in use") from None
+        moderation.record_action(db, "rename", account_id, newname)
+    return {"ok": True, "account_id": account_id, "username": newname}
+
+
+@app.get("/v1/moderation/name-rules")
+def list_name_rules(search: str = "", match_mode: str = "all",
+                    authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if len(search) > 48 or match_mode not in ("all", "contains", "word"):
+        raise HTTPException(422, "Invalid name-rule filter")
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db:
+        rows = db.execute(
+            """SELECT id,term,match_mode,created_at FROM forbidden_names
+               WHERE term LIKE ? AND (?='all' OR match_mode=?)
+               ORDER BY created_at DESC,id DESC LIMIT 200""",
+            (f"%{search.casefold()}%", match_mode, match_mode),
+        ).fetchall()
+    return JSONResponse({"rules": [{"id": id, "term": term, "match_mode": mode,
+                                    "created_at": created} for id, term, mode, created in rows]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/v1/moderation/name-rules")
+def add_name_rule(body: dict = Body(...), authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    reject_unexpected(body, {"term", "match_mode"})
+    if not isinstance(body["term"], str) or not isinstance(body["match_mode"], str):
+        raise HTTPException(422, "Invalid name rule")
+    term = moderation.validate_rule(body["term"], body["match_mode"])
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db, db:
+        try:
+            cur = db.execute(
+                "INSERT INTO forbidden_names(term,match_mode,created_at) VALUES (?,?,?)",
+                (term, body["match_mode"], int(time.time())))
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "Rule already exists") from None
+        moderation.record_action(db, "name_rule_add", str(cur.lastrowid), term)
+    return {"id": cur.lastrowid, "term": term, "match_mode": body["match_mode"]}
+
+
+@app.delete("/v1/moderation/name-rules/{rule_id}")
+def delete_name_rule(rule_id: int, authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    if rule_id <= 0:
+        raise HTTPException(422, "Invalid rule ID")
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db, db:
+        cur = db.execute("DELETE FROM forbidden_names WHERE id=?", (rule_id,))
+        if not cur.rowcount:
+            raise HTTPException(404, "Rule not found")
+        moderation.record_action(db, "name_rule_delete", str(rule_id), "")
+    return {"ok": True}
+
+
+@app.get("/v1/moderation/name-rule-violations")
+def name_rule_violations(authorization: str | None = Header(default=None)):
+    authorize(authorization)
+    with closing(moderation.connect_admin(ACCOUNT_DB)) as db:
+        rules = list(db.execute("SELECT term,match_mode FROM forbidden_names"))
+        users = list(db.execute("SELECT id,username FROM users ORDER BY username LIMIT 5000"))
+        flagged = [{"account_id": uid, "username": name} for uid, name in users
+                   if any(moderation.match_rule(name, term, mode) for term, mode in rules)]
+    return JSONResponse({"accounts": flagged}, headers={"Cache-Control": "no-store"})
 
 
 @app.api_route("/v1/{path:path}", methods=["POST", "PUT", "PATCH", "DELETE"])

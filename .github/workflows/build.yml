@@ -74,6 +74,10 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m pip install -e . pyinstaller==6.16.0
+      - name: Stamp immutable source SHA into packaged updater
+        env:
+          MKWOM_BUILD_SHA: ${{ github.sha }}
+        run: python -c "import os,pathlib,re; s=os.environ['MKWOM_BUILD_SHA']; assert re.fullmatch(r'[a-f0-9]{40}',s); pathlib.Path('mkwom/build_identity.py').write_text('BUILD_SHA = ' + repr(s) + '\n', encoding='utf-8')"
       - run: python -m PyInstaller --onefile --windowed --name mkwom --paths . tools/entry.py
       - run: ./dist/mkwom.exe --help
       - name: Check graphical Tkinter runtime is available
@@ -175,3 +179,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/cleanup_prebeta_releases.py
+
+  cleanup-legacy-stable-assets:
+    name: Remove redundant downloads from legacy stable v0.1.1
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [queue-strato]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Preserve active updater ZIP and install EXE, then delete only legacy duplicates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 tools/cleanup_public_release_assets.py

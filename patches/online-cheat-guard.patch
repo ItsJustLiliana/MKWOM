@@ -1,7 +1,7 @@
 diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
 --- a/runtime/core/base/cfg.c
 +++ b/runtime/core/base/cfg.c
-@@ -373,7 +373,33 @@
+@@ -373,7 +373,34 @@
      return wl && *wl && x && *x ? "x11" : NULL;
  }
  
@@ -12,7 +12,7 @@ diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
 +    if (strncmp(name, "MKW_", 4)) return 0;
 +    const char *key = name + 4;
 +    static const char *keys[] = {"TURBO", "TURBO_SPEED", "SKIP_MOVIES", "SEED",
-+        "UNLOCK_ALL", "QUICK_RACE", "FREEZE_KEYS", "CLASSIC_GP", "CLASSIC_VS", "MODS"};
++        "UNLOCK_ALL", "QUICK_RACE", "FREEZE_KEYS", "CLASSIC_GP", "CLASSIC_VS", "MODS", "ROMFS_MODS"};
 +    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++)
 +        if (!strcmp(key, keys[i])) return 1;
 +    return 0;
@@ -26,7 +26,8 @@ diff --git a/runtime/core/base/cfg.c b/runtime/core/base/cfg.c
 +static const char *mkwom_hack_disabled_value(const char *name) {
 +    if (!strcmp(name, "MKW_TURBO") || !strcmp(name, "MKW_QUICK_RACE")) return "off";
 +    if (!strcmp(name, "MKW_TURBO_SPEED")) return "4";
-+    if (!strcmp(name, "MKW_SEED") || !strcmp(name, "MKW_MODS")) return "";
++    if (!strcmp(name, "MKW_SEED") || !strcmp(name, "MKW_MODS") ||
++        !strcmp(name, "MKW_ROMFS_MODS")) return "";
 +    return "0";
 +}
 +

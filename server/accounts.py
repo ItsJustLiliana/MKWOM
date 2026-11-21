@@ -306,6 +306,35 @@ def record_race(body: RaceResult, x_mkwom_score_key: str | None = Header(default
     return {"accepted": True, "duplicate": False}
 
 
+@app.get("/race-receipt")
+def race_receipt(channel: str, race_id: str, token_hash: str = Depends(bearer)):
+    """Authenticated, immutable central-commit receipt for a participant.
+
+    A local native outbox file is *not* proof that this transaction committed.
+    Only a participating central account may retrieve this receipt.
+    """
+    if channel not in ("beta", "release") or not re.fullmatch(r"[A-Za-z0-9_-]{12,128}", race_id):
+        raise HTTPException(422, "Invalid competition receipt identity")
+    with connect() as db:
+        user = db.execute(
+            "SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?",
+            (token_hash, int(time.time()))).fetchone()
+        if not user:
+            raise HTTPException(401, "Session expired or revoked")
+        result = db.execute(
+            """SELECT r.game_mode,r.payload_hash,r.created_at,s.position,s.points
+               FROM race_results r JOIN race_scores s
+               ON r.channel=s.channel AND r.race_id=s.race_id
+               WHERE r.channel=? AND r.race_id=? AND s.user_id=?""",
+            (channel, race_id, user[0])).fetchone()
+    if not result:
+        raise HTTPException(404, "No committed result for this account")
+    return {"committed": True, "channel": channel, "race_id": race_id,
+            "game_mode": result[0], "payload_hash": result[1],
+            "committed_at": result[2], "position": result[3],
+            "rating_delta": result[4]}
+
+
 @app.get("/scores")
 def account_scores(channel: str, game_mode: str | None = None, token_hash: str = Depends(bearer)):
     """Read the calling account's history for exactly one approved channel."""

@@ -1,7 +1,6 @@
 """Pre-beta artifacts are private and promotion validates the STRATO queue receipt."""
 import json
 from pathlib import Path
-import subprocess
 
 import pytest
 

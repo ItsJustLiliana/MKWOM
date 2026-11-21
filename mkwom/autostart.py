@@ -46,6 +46,10 @@ def update_and_launch(game: Path) -> None:
     profile = current_user(channel)
     if not profile or not profile.get("id"):
         raise AuthError("Log in to MKWOM again before continuing.")
+    # ExeFS code mods are compiled into the game and cannot be suppressed at
+    # runtime; refuse online and offer singleplayer before any network/update.
+    from .mod_safety import require_unmodded_code_online
+    require_unmodded_code_online(game)
     # The transactional updater preserves saves, verifies the patch's hash and
     # refuses unsupported versions; this process does not hold mkw.exe open.
     update(game, channel)

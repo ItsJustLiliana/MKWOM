@@ -18723,7 +18723,7 @@ index 0000000..fb8f922
 +        // actually went away; another ticket must wait for normal matchmaking.
 +        if (!m || m->streams) continue;
 +        m->seq = ++member_seq;
-+        // The old stream may have closed up to 15 seconds before the player
++        // The old stream may have closed up to 30 seconds before the player
 +        // reaches Matchmaker. Give the *new* Gamesync handshake a full grace
 +        // interval before running its deferred participation deletion. The
 +        // deadline remains bounded and is cleared when the new stream opens.
@@ -18929,7 +18929,7 @@ index 0000000..2afd6d0
 +#include "srv_value.h"
 +
 +// Gamesync tokens: GS_TOKENS_PER per player and session (a game asks again after an hour), GS_TOKENS_MAX per session.
-+enum { GAMESYNC_RECONNECT_GRACE_MS = 15000, SESSIONS_MAX = 256, MEMBERS_MAX = 32, GS_TOKENS_MAX = 128, GS_TOKENS_PER = 4, DEFERMENTS_MAX = 128,
++enum { GAMESYNC_RECONNECT_GRACE_MS = 30000, SESSIONS_MAX = 256, MEMBERS_MAX = 32, GS_TOKENS_MAX = 128, GS_TOKENS_PER = 4, DEFERMENTS_MAX = 128,
 +       DEFERMENT_BYTES = 64 << 10, DEFERMENTS_BYTES = 1 << 20 };
 +
 +typedef struct {

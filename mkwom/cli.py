@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 import zipfile
 
 from . import __version__
+from .build_identity import BUILD_SHA
 from .delta import sha
 from .installer import install, uninstall, read_json, json_write, game_closed, verify
 
@@ -75,16 +76,20 @@ def update_status(game: Path, channel: str) -> dict:
     """Check for updates without modifying or launching the game."""
     manifest = fetch_channel(channel)
     installed = read_json(game / ".mkwom/installed.json", {})
+    upstream_installer = manifest.get("installer_build_sha")
+    build_stale = bool(upstream_installer) and upstream_installer != BUILD_SHA
     return {"installed": installed.get("version"), "available": manifest["version"],
-            "patcher_update": manifest.get("installer_version") != __version__,
+            "patcher_update": manifest.get("installer_version") != __version__ or build_stale,
             "patch_update": installed.get("version") != manifest["version"], "channel": channel}
 
 
 def update(game: Path, channel: str, *, force: bool = False):
     game_closed()
     manifest = fetch_channel(channel)
-    if manifest.get("installer_version") != __version__:
-        raise ValueError("a new patcher is required; download it from the repository Releases page")
+    expected_build = manifest.get("installer_build_sha")
+    if (manifest.get("installer_version") != __version__ or
+            (expected_build and expected_build != BUILD_SHA)):
+        raise ValueError("a new patcher is required; download the latest MKWOM Setup EXE from GitHub Releases")
     old = read_json(game / ".mkwom/installed.json", {})
     if old.get("version") == manifest["version"] and not force:
         verify(game, old)

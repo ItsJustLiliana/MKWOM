@@ -282,6 +282,9 @@ class SetupWizard:
             self._label(self.body, "✓  Uninstall complete" if self.completed_action == "uninstall" else "✓  Installation complete", 21, "#4fdaa8", bold=True).pack(anchor="w", pady=20)
             self._label(self.body, ("Original game files restored. Saves and your Windows account are kept." if self.completed_action == "uninstall" else "You can now start Mario Kart World from mkw.exe.\nYour login and server settings are saved securely."),
                         11, MUTED, justify="left").pack(anchor="w")
+            if self.completed_action != "uninstall":
+                tk.Button(self.body, text="Export Race Connection Report", command=self.export_race_report,
+                          bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w", pady=(20, 0))
             self.back.configure(state="disabled")
             if self.completed_action == "uninstall":
                 self.next.configure(text="Close", command=self.close, state="normal", bg=BLUE, fg="white")
@@ -307,6 +310,10 @@ class SetupWizard:
             self._field("Game installation directory", self.game)
             tk.Button(self.body, text="Browse for mkw.exe...", command=self.choose, bg="#303c52",
                       fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w")
+            tk.Button(self.body, text="Export Race Connection Report", command=self.export_race_report,
+                      bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w", pady=(14, 0))
+            self._label(self.body, "Diagnose race disconnects without reinstalling or changing game files.",
+                        10, MUTED).pack(anchor="w", pady=(7, 10))
             self._label(self.body, "Your game files and saves remain in their original folder.",
                         10, MUTED).pack(anchor="w", pady=18)
         elif self.step == 1:
@@ -346,6 +353,36 @@ class SetupWizard:
             self.back.configure(state="disabled")
             self.next.configure(state="disabled")
         self._update_continue_state()
+
+    def export_race_report(self):
+        """Offline diagnostic export; never alters the installed multiplayer patch."""
+        from .race_report import build_report, write_report
+        try:
+            game = Path(self.game.get().strip().strip('"')).expanduser()
+            if not valid_game_folder(game):
+                raise ValueError("Choose the directory containing mkw.exe first.")
+            client_logs = [p for p in (game / "mkw.log", game / "logs" / "mkw.log",
+                                       game / ".mkwom" / "mkw.log") if p.is_file()]
+            if not client_logs:
+                selected = filedialog.askopenfilename(
+                    title="Select the game's mkw.log", filetypes=[("Log files", "*.log"), ("All files", "*.*")])
+                if selected:
+                    client_logs = [Path(selected)]
+            server_logs = []
+            if messagebox.askyesno("Server diagnostics",
+                                   "Do you have an exported STRATO server log to include?\n"
+                                   "Choose No to create a report using only the game log."):
+                selected = filedialog.askopenfilename(
+                    title="Select exported STRATO journal", filetypes=[("Logs", "*.log *.txt"), ("All files", "*.*")])
+                if selected:
+                    server_logs = [Path(selected)]
+            report = build_report(client_logs, server_logs)
+            _json, markdown = write_report(report, game / ".mkwom" / "reports" / "race-connection-report")
+            messagebox.showinfo("Race Connection Report",
+                                f"Report created:\n{markdown}\n\n"
+                                "It contains classified events, not raw logs or account credentials.")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Race Connection Report", str(exc))
 
     def choose(self):
         folder = filedialog.askdirectory(title="Select the official Mario Kart World game directory")

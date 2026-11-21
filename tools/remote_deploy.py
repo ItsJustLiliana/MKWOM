@@ -72,7 +72,7 @@ try:
                            stdin=f, check=True)
     digest = hashlib.sha256(Path("dist/mkwom-server-linux-x64.tar.gz").read_bytes()).hexdigest()
     args = ["python3", remote + "/deploy_server.py", remote + "/mkwom-server-linux-x64.tar.gz",
-            "--sha256", digest, "--root", os.environ["DEPLOY_ROOT"], "--unit", os.environ["DEPLOY_UNIT"],
+            "--stage", stage, "--sha256", digest, "--root", os.environ["DEPLOY_ROOT"], "--unit", os.environ["DEPLOY_UNIT"],
             "--host", os.environ["LISTEN_HOST"], "--port", os.environ["LOBBY_PORT"]]
     if os.environ.get("RESTART_IF_UNCHANGED") == "true":
         args.append("--restart-if-unchanged")

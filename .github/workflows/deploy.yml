@@ -31,8 +31,8 @@ jobs:
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}
           LISTEN_HOST: ${{ vars.LISTEN_HOST }}
           LOBBY_PORT: ${{ vars.LOBBY_PORT }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
         run: |
@@ -68,8 +68,8 @@ jobs:
           chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
       - name: Check pinned host (no deployment)
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
         run: |
           test "$DEPLOY_HOST" = "31.70.192.231"
           test "$DEPLOY_USER" = "mkwom"
@@ -78,8 +78,8 @@ jobs:
               -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" true
       - name: Deploy to STRATO over verified SSH
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_STAGE: ${{ inputs.environment }}
           DEPLOY_ROOT: ${{ inputs.environment == 'beta' && '/home/mkwom/projects/MKWOM-beta' || '/home/mkwom/projects/MKWOM-server' }}
           DEPLOY_UNIT: ${{ vars.DEPLOY_UNIT }}

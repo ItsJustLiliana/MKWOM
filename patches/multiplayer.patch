@@ -13570,7 +13570,7 @@ new file mode 100644
 index 0000000..721d8cb
 --- /dev/null
 +++ b/runtime/srv/srv_auth.c
-@@ -0,0 +1,533 @@
+@@ -0,0 +1,538 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Sign-in and bearer tokens (srv_auth.h), as the protocol description's "Identity, sign-in and accounts" says: the
 +// identity string our runtime puts in the game's sign-in request (droplet-online-v1;code=...;secret=...;friends=...),
@@ -13896,14 +13896,18 @@ index 0000000..721d8cb
 +// Cross-process MKWOM ticket: HMAC-SHA256 with an operator-provided shared key.
 +// The account API, not the client, signs v1.<account-id>.<friend-code>.<expiry>.<nonce>.
 +// The game server keeps the key; no plaintext account bearer enters game traffic.
-+static int mkwom_ticket_valid(const char *ticket, uint64_t friend_code, char account_id[33]) {
++static int mkwom_ticket_valid(const char *ticket, uint64_t friend_code, char account_id[33], char channel_out[8]) {
 +    account_id[0] = 0;
++    channel_out[0] = 0;
 +    const char *secret = getenv("MKWOM_GAME_TICKET_KEY");
 +    if (!secret || strlen(secret) != 64 || strspn(secret, "0123456789abcdef") != 64) return 0;
 +    if (!ticket || strlen(ticket) >= 256) return 0;
 +    char copy[256];
 +    snprintf(copy, sizeof copy, "%s", ticket);
 +    int scoped = !strncmp(ticket, "v2.", 3);
++    // Production can require the server-verified channel on every ticket.
++    if (!scoped && getenv("MKWOM_REQUIRE_SCOPED_TICKETS") &&
++        !strcmp(getenv("MKWOM_REQUIRE_SCOPED_TICKETS"), "1")) return 0;
 +    int fields = scoped ? 7 : 6;
 +    int code_idx = scoped ? 3 : 2, expiry_idx = scoped ? 4 : 3;
 +    int nonce_idx = scoped ? 5 : 4, sig_idx = scoped ? 6 : 5;
@@ -13966,6 +13970,7 @@ index 0000000..721d8cb
 +    memset(mac, 0, sizeof mac);
 +    if (diff) return 0;
 +    snprintf(account_id, 33, "%s", part[1]);
++    if (scoped) snprintf(channel_out, 8, "%s", part[2]);
 +    return 1;
 +}
 +
@@ -14006,10 +14011,10 @@ index 0000000..721d8cb
 +    static Identity id;   // 8 KiB: not on the stack
 +    int has = pb_find(msg, len, 3, &cred) == 1 && cred.wt == PB_LEN && pb_find(cred.data, cred.len, 1, &token) == 1 &&
 +              token.wt == PB_LEN && parse_identity((const char *)token.data, token.len, &id);
-+    char bound_account[33] = "";
++    char bound_account[33] = "", signed_channel[8] = "";
 +    int enforce_accounts = mkwom_auth_required();
 +    if (enforce_accounts &&
-+        (!has || !mkwom_ticket_valid(id.game_ticket, id.code, bound_account))) {
++        (!has || !mkwom_ticket_valid(id.game_ticket, id.code, bound_account, signed_channel))) {
 +        srv_call_end(c, ST_PERMISSION_DENIED, "MKWOM account login required or expired");
 +        return;
 +    }
@@ -14096,7 +14101,7 @@ index 0000000..721d8cb
 +        srv_call_end(c, ST_INTERNAL, "reply too large");
 +        return;
 +    }
-+    srv_presence_signin(uid, code, tenant, has ? id.build : "");
++    srv_presence_signin(uid, code, tenant, has ? id.build : "", signed_channel);
 +    srv_call_reply(c, o.buf, o.len);
 +    pb_free(&o);
 +    srv_log("%s signed in to %s as %s", srv_call_ip(c), tenant, code ? "a friend code" : "a guest");
@@ -16700,7 +16705,7 @@ new file mode 100644
 index 0000000..da96a60
 --- /dev/null
 +++ b/runtime/srv/srv_presence.c
-@@ -0,0 +1,358 @@
+@@ -0,0 +1,365 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.h), as the protocol description's "Presence and friends" says.
 +// Online: a stream open, or a call less than 120 s ago before any stream, or less than 15 s since the last stream
@@ -16729,7 +16734,7 @@ index 0000000..da96a60
 +} Attr;
 +
 +typedef struct {
-+    char uid[24], tenant[64], build[65], version[64];
++    char uid[24], tenant[64], build[65], version[64], channel[8];
 +    uint64_t code;
 +    int streams, streamed;   // open now; any since the sign-in
 +    uint64_t last_call, last_close;
@@ -16794,12 +16799,14 @@ index 0000000..da96a60
 +    }
 +}
 +
-+void srv_presence_signin(const char *uid, uint64_t code, const char *tenant, const char *build) {
++void srv_presence_signin(const char *uid, uint64_t code, const char *tenant, const char *build,
++                         const char *channel) {
 +    Player *p = player(uid);
 +    if (!p) return;
 +    p->code = code;
 +    snprintf(p->tenant, sizeof p->tenant, "%s", tenant);
 +    snprintf(p->build, sizeof p->build, "%s", build);
++    snprintf(p->channel, sizeof p->channel, "%s", channel);
 +    p->last_call = srv_ms();
 +    p->streamed = p->streams > 0;
 +}
@@ -16823,6 +16830,11 @@ index 0000000..da96a60
 +const char *srv_player_build(const char *uid) {
 +    Player *p = find_player(uid);
 +    return p ? p->build : "";
++}
++
++const char *srv_player_channel(const char *uid) {
++    Player *p = find_player(uid);
++    return p ? p->channel : "";
 +}
 +
 +const char *srv_player_version(const char *uid) {
@@ -17064,7 +17076,7 @@ new file mode 100644
 index 0000000..e99ea2d
 --- /dev/null
 +++ b/runtime/srv/srv_presence.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,20 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Players online and their presence (srv_presence.c): who is online (calls and open streams), the attributes each
 +// player's game publishes (PresenceService/KeepAlive), and the friend list and friends' presences streamed to each
@@ -17073,13 +17085,16 @@ index 0000000..e99ea2d
 +#include <stdint.h>
 +
 +// build: the game's build id from the identity string, "" when unknown (matchmaking and rooms keep builds apart).
-+void srv_presence_signin(const char *uid, uint64_t code, const char *tenant, const char *build);
++void srv_presence_signin(const char *uid, uint64_t code, const char *tenant, const char *build,
++                         const char *channel);
 +int srv_online(uint64_t code);           // in any game: for the friends API
 +int srv_uid_online(const char *uid);     // a ticket whose player is gone is cancelled (codeless players too)
 +// What the services know of a player, "" when unknown: the game signed in to, its build, the game version it last
 +// showed in a ticket or a room (its batching_key, else rom_id).
 +const char *srv_player_tenant(const char *uid);
 +const char *srv_player_build(const char *uid);
++// Channel taken only from a validated, signed v2 account ticket (never client metadata).
++const char *srv_player_channel(const char *uid);
 +const char *srv_player_version(const char *uid);
 +void srv_player_set_version(const char *uid, const char *version);
 diff --git a/runtime/srv/srv_referee.c b/runtime/srv/srv_referee.c
@@ -17482,7 +17497,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1115 @@
+@@ -0,0 +1,1128 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17516,7 +17531,7 @@ index 0000000..fb8f922
 +
 +typedef struct {
 +    int used, state;
-+    char id[24], tenant[64], config[64], uid[24], batching[64], build[65], session[24];
++    char id[24], tenant[64], config[64], uid[24], batching[64], build[65], session[24], channel[8];
 +    uint8_t *body;   // the request's Ticket without its fields 1 and 5, echoed in every message about it
 +    size_t body_len;
 +    SrvMap attrs;    // the last ticket member's attributes
@@ -17821,7 +17836,8 @@ index 0000000..fb8f922
 +
 +static SrvSession *session_of(SrvCall *c, const uint8_t *msg, size_t len) {
 +    SrvSession *s = session_named(msg, len);
-+    return s ? s : srv_session_recent(srv_call_uid(c));
++    if (!s) s = srv_session_recent(srv_call_uid(c));
++    return s && !strcmp(s->channel, srv_player_channel(srv_call_uid(c))) ? s : NULL;
 +}
 +
 +// ---- rooms: CreateGameSessionCreationTicket {1: parent, 2: CreationTicket {2: config, 3: TicketMember (the host),
@@ -17867,6 +17883,7 @@ index 0000000..fb8f922
 +        srv_call_end(c, ST_RESOURCE_EXHAUSTED, "too many game sessions");
 +        return;
 +    }
++    snprintf(s->channel, sizeof s->channel, "%s", srv_player_channel(uid));
 +    snprintf(s->version, sizeof s->version, "%s", version);
 +    snprintf(s->creation, sizeof s->creation, "gct-%04u", ++next_gct);
 +    member_add(s, uid, &host_attrs, ++s->next_ussid);
@@ -17891,7 +17908,8 @@ index 0000000..fb8f922
 +    SrvSession *s = NULL;
 +    for (int i = 0; i < nsessions && !s; i++)
 +        if (sessions[i]->room && !strcmp(sessions[i]->creation, last_seg(name))) s = sessions[i];
-+    if (s && !srv_member(s, srv_call_uid(c))) s = NULL;
++    if (s && (!srv_member(s, srv_call_uid(c)) ||
++              strcmp(s->channel, srv_player_channel(srv_call_uid(c))))) s = NULL;
 +    PbOut o = {0};
 +    pb_str(&o, 1, name);
 +    if (s) {
@@ -17921,7 +17939,8 @@ index 0000000..fb8f922
 +    // for certain session queries but sends friend joins to stale lobbies.
 +    SrvSession *s = session_named(msg, len);
 +    PbOut o = {0};
-+    if (!s || !*uid || strcmp(s->tenant, tenant)) {
++    if (!s || !*uid || strcmp(s->tenant, tenant) ||
++        strcmp(s->channel, srv_player_channel(uid))) {
 +        srv_call_end(c, ST_FAILED_PRECONDITION, "requested lobby is unavailable");
 +        return;
 +    }
@@ -17997,7 +18016,8 @@ index 0000000..fb8f922
 +        memcpy(name, field.data, field.len);
 +        name[field.len] = 0;
 +        SrvSession *s = srv_session_find(last_seg(name));
-+        if (s && !strcmp(s->tenant, tenant) && !s->closed) put_session(&out, 1, s);
++        if (s && !strcmp(s->tenant, tenant) && !s->closed &&
++            !strcmp(s->channel, srv_player_channel(srv_call_uid(c)))) put_session(&out, 1, s);
 +        n++;
 +    }
 +    reply(c, &out);
@@ -18051,7 +18071,8 @@ index 0000000..fb8f922
 +        if (!isspace((unsigned char)*p)) typed[n++] = *p;
 +    typed[n] = 0;
 +    const SrvSession *s = n ? by_alias(typed) : NULL;
-+    if (!s) srv_call_end(c, ST_NOT_FOUND, "no room with that ID");
++    if (!s || strcmp(s->channel, srv_player_channel(srv_call_uid(c))))
++        srv_call_end(c, ST_NOT_FOUND, "no room with that ID");
 +    else alias_reply(c, s);
 +}
 +
@@ -18163,6 +18184,7 @@ index 0000000..fb8f922
 +    tenant_of(c, t->tenant);
 +    snprintf(t->config, sizeof t->config, "%s", last_seg(config));
 +    snprintf(t->uid, sizeof t->uid, "%s", uid);
++    snprintf(t->channel, sizeof t->channel, "%s", srv_player_channel(uid));
 +    scalar(map_get(&attrs, "batching_key"), t->batching);
 +    snprintf(t->build, sizeof t->build, "%s", srv_player_build(uid));
 +    t->body = body.buf;   // taken over
@@ -18209,7 +18231,8 @@ index 0000000..fb8f922
 +    str_of(msg, len, 1, name, sizeof name);
 +    snprintf((*kp)->id, sizeof (*kp)->id, "%s", last_seg(name));
 +    Ticket *t = ticket_find((*kp)->id);
-+    if (t && strcmp(t->uid, srv_call_uid(c))) t = NULL;
++    if (t && (strcmp(t->uid, srv_call_uid(c)) ||
++              strcmp(t->channel, srv_player_channel(srv_call_uid(c))))) t = NULL;
 +    if (t) {
 +        (*kp)->known = 1;
 +        track_send(c, *kp, t);
@@ -18244,7 +18267,9 @@ index 0000000..fb8f922
 +    char name[160];
 +    str_of(msg, len, 1, name, sizeof name);
 +    Ticket *t = ticket_find(last_seg(name));
-+    if (t && !strcmp(t->uid, srv_call_uid(c)) && !final_state(t->state)) t->state = T_CANCELLED;
++    if (t && !strcmp(t->uid, srv_call_uid(c)) &&
++        !strcmp(t->channel, srv_player_channel(srv_call_uid(c))) &&
++        !final_state(t->state)) t->state = T_CANCELLED;
 +    PbOut o = {0};
 +    reply(c, &o);
 +}
@@ -18263,7 +18288,8 @@ index 0000000..fb8f922
 +static int knockout(const char *config) { return !strcmp(config, "Survival24") || !strcmp(config, "ClutchSurvival24"); }
 +
 +static int same_queue(const Ticket *a, const Ticket *b) {
-+    return !strcmp(a->tenant, b->tenant) && !strcmp(a->config, b->config) && !strcmp(a->batching, b->batching);
++    return !strcmp(a->tenant, b->tenant) && !strcmp(a->config, b->config) &&
++           !strcmp(a->channel, b->channel) && !strcmp(a->batching, b->batching);
 +}
 +
 +// The tickets in a state, oldest first.
@@ -18315,6 +18341,7 @@ index 0000000..fb8f922
 +        // final listener has gone. Preserve 24-player initial backfill.
 +        if (s->room || s->closed || (!s->listeners && s->ever_listened) || !s->nmembers ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
++            strcmp(s->channel, t->channel) ||
 +            strcmp(s->batching, t->batching) || srv_member(s, t->uid))
 +            continue;
 +        if (!session_accepting(s)) continue;
@@ -18352,7 +18379,7 @@ index 0000000..fb8f922
 +        SrvSession *s = sessions[i];
 +        if (s->room || s->closed || !s->listeners ||
 +            strcmp(s->tenant, t->tenant) || strcmp(s->config, t->config) ||
-+            strcmp(s->batching, t->batching))
++            strcmp(s->channel, t->channel) || strcmp(s->batching, t->batching))
 +            continue;
 +        SrvMember *m = srv_member(s, t->uid);
 +        // The log showed repeated reattachment to gs-0001 with grace=0
@@ -18400,6 +18427,7 @@ index 0000000..fb8f922
 +    }
 +    SrvSession *s = session_new(pick[0]->tenant, config, 0, size, &attrs);
 +    if (!s) return;
++    snprintf(s->channel, sizeof s->channel, "%s", pick[0]->channel);
 +    snprintf(s->batching, sizeof s->batching, "%s", pick[0]->batching);
 +    for (int k = 0; k < np; k++) {   // the first is the host
 +        member_add(s, pick[k]->uid, &pick[k]->attrs, k + 1);
@@ -18495,8 +18523,8 @@ index 0000000..fb8f922
 +// worker writes this durable, idempotent event to the account API. Never copy
 +// the mutable server data store to a new generation.
 +static int queue_score_result(SrvSession *session, SrvRace *race) {
-+    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
-+    if (!channel || (strcmp(channel, "beta") && strcmp(channel, "release"))) return 0;
++    const char *channel = session->channel;
++    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 0;
 +    if (race->score_queued || race->open || !race->nfinal) return race->score_queued;
 +    char path[1600], directory[1400], document[8192];
 +    if (!*race->uuid || strspn(race->uuid, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
@@ -18529,7 +18557,7 @@ index 0000000..fb8f922
 +    document[n++] = ']';
 +    document[n++] = '}';
 +    document[n++] = '\n';
-+    if (snprintf(directory, sizeof directory, "%s/score-outbox", srv_data_dir()) >= (int)sizeof directory ||
++    if (snprintf(directory, sizeof directory, "%s/score-outbox/%s", srv_data_dir(), channel) >= (int)sizeof directory ||
 +        snprintf(path, sizeof path, "%s/%s.json", directory, race->uuid) >= (int)sizeof path) return 0;
 +    plat_file_mkdir_p(directory);
 +    if (!plat_file_write_atomic(path, document, (size_t)n)) return 0;
@@ -18539,8 +18567,8 @@ index 0000000..fb8f922
 +}
 +
 +int srv_session_flush_scores(SrvSession *s) {
-+    const char *channel = getenv("MKWOM_SCORE_CHANNEL");
-+    if (!channel || !*channel) return 1;  // Preserve existing non-scoring deployments.
++    const char *channel = s->channel;
++    if (!*channel) return 1;  // Only legacy/pre-beta sessions have no score namespace.
 +    if (strcmp(channel, "beta") && strcmp(channel, "release")) return 0;
 +    for (int r = 0; r < RACES_MAX; r++)
 +        if (s->referee.races[r].used && !s->referee.races[r].open &&
@@ -18647,7 +18675,7 @@ index 0000000..2afd6d0
 +} SrvDeferment;
 +
 +typedef struct {
-+    char id[24], tenant[64], config[64], batching[64], version[64], alias[8], creation[24];
++    char id[24], tenant[64], config[64], batching[64], version[64], alias[8], creation[24], channel[8];
 +    int room, closed, max_players, nmembers, listeners, ever_listened;
 +    SrvMember members[MEMBERS_MAX];   // in member order (the first is the host)
 +    int64_t next_ussid, next_upcsid;  // rooms: numbers handed out so far, never given twice

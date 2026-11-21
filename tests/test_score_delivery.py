@@ -12,6 +12,8 @@ from tools import score_delivery
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "DB_PATH", tmp_path / "accounts.sqlite3")
+    # Each test uses a fresh database; reset the in-memory registration rate limit too.
+    monkeypatch.setattr(accounts, "_attempts", {})
     monkeypatch.setenv("MKWOM_SCORE_BETA_KEY", "ac" * 32)
     monkeypatch.setenv("MKWOM_SCORE_RELEASE_KEY", "bd" * 32)
     testclient = TestClient(accounts.app)
@@ -141,3 +143,31 @@ def test_conflicting_local_receipt_never_deletes_unconfirmed_event(setup):
     with pytest.raises(ValueError, match="Conflicting"):
         score_delivery.deliver_one(path, "beta", "http://127.0.0.1:9081", "ac" * 32)
     assert path.exists()
+
+
+def test_parallel_channels_keep_identical_race_id_and_receipts_independent(setup):
+    client, uid, legacy_outbox, token = setup
+    root = legacy_outbox.parent
+    beta = root / "score-outbox" / "beta"
+    release = root / "score-outbox" / "release"
+    beta.mkdir()
+    release.mkdir()
+    race_id = "same-race-id-0001"
+    beta_event = event(beta, race_id, "beta", uid, 10)
+    release_event = event(release, race_id, "release", uid, -10)
+    assert score_delivery.deliver_pending(beta, "beta", "http://127.0.0.1:9081", "ac" * 32) == (1, 0)
+    assert release_event.is_file()
+    assert score_delivery.deliver_pending(release, "release", "http://127.0.0.1:9081", "bd" * 32) == (1, 0)
+    assert not beta_event.exists() and not release_event.exists()
+    beta_receipt = root / "score-receipts" / "beta" / (race_id + ".json")
+    release_receipt = root / "score-receipts" / "release" / (race_id + ".json")
+    assert beta_receipt.exists() and release_receipt.exists()
+    assert beta_receipt != release_receipt
+    assert json.loads(beta_receipt.read_text())["channel"] == "beta"
+    assert json.loads(release_receipt.read_text())["channel"] == "release"
+    headers = {"Authorization": "Bearer " + token}
+    assert client.get("/scores?channel=beta&game_mode=race", headers=headers).json()["races"] == 1
+    assert client.get("/scores?channel=release&game_mode=race", headers=headers).json()["races"] == 1
+    # Both channel workers are idempotent even when their race ids match.
+    assert score_delivery.deliver_pending(beta, "beta", "http://127.0.0.1:9081", "ac" * 32) == (0, 0)
+    assert score_delivery.deliver_pending(release, "release", "http://127.0.0.1:9081", "bd" * 32) == (0, 0)

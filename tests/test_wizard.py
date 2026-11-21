@@ -113,3 +113,75 @@ def test_missing_saved_account_routes_to_login():
     wizard.show_step = MagicMock()
     wizard._account_ready(None)
     assert wizard.step == 3
+
+def test_continue_requires_complete_fields_and_valid_game(tmp_path):
+    from unittest.mock import MagicMock
+
+    wizard = SetupWizard.__new__(SetupWizard)
+    wizard.busy = False
+    wizard.complete = False
+    wizard.step = 0
+    wizard.game = MagicMock()
+    wizard.action = MagicMock()
+    wizard.channel = MagicMock()
+    wizard.username = MagicMock()
+    wizard.password = MagicMock()
+    wizard.game.get.return_value = str(tmp_path)
+    assert not wizard.can_continue()
+    (tmp_path / "mkw.exe").write_bytes(b"official runtime")
+    assert wizard.can_continue()
+    wizard.step = 1
+    wizard.action.get.return_value = ""
+    assert not wizard.can_continue()
+    wizard.action.get.return_value = "reinstall"
+    assert wizard.can_continue()
+    wizard.step = 2
+    wizard.channel.get.return_value = "pre-beta"
+    assert not wizard.can_continue()
+    wizard.channel.get.return_value = "release"
+    assert wizard.can_continue()
+    wizard.step = 3
+    wizard.username.get.return_value = ""
+    wizard.password.get.return_value = ""
+    with patch.object(SetupWizard, "_has_saved_login", return_value=False):
+        assert not wizard.can_continue()
+        wizard.username.get.return_value = "driver"
+        wizard.password.get.return_value = "secure-passphrase"
+        assert wizard.can_continue()
+    wizard.step = 4
+    assert wizard.can_continue()
+    wizard.busy = True
+    assert not wizard.can_continue()
+
+
+def test_open_launcher_exits_setup_only_after_successful_game_start(tmp_path):
+    from unittest.mock import MagicMock
+
+    (tmp_path / "mkw.exe").write_bytes(b"runtime")
+    wizard = SetupWizard.__new__(SetupWizard)
+    wizard.game = MagicMock()
+    wizard.game.get.return_value = str(tmp_path)
+    wizard.busy = False
+    wizard.complete = True
+    wizard.completed_action = "install"
+    wizard.close = MagicMock()
+    with patch("mkwom.wizard.launch") as launch:
+        wizard.open_launcher()
+        launch.assert_called_once_with(tmp_path)
+    wizard.close.assert_called_once_with()
+    wizard.close.reset_mock()
+    with patch("mkwom.wizard.launch", side_effect=ValueError("Game unavailable")), \
+         patch("mkwom.wizard.messagebox.showerror") as show_error:
+        wizard.open_launcher()
+        show_error.assert_called_once()
+    wizard.close.assert_not_called()
+
+
+def test_wizard_hides_server_address_and_uses_product_title():
+    import inspect
+
+    source = inspect.getsource(SetupWizard.show_step)
+    assert "COMMUNITY_ENDPOINT" not in source
+    assert "Official server:" not in source
+    assert "Open Launcher" in source
+    assert "Mario Kart World: Online Multiplayer" in inspect.getsource(SetupWizard._layout)

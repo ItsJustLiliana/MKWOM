@@ -1,7 +1,7 @@
 """Deliver native race score events to the account API with retry and channel isolation.
 
-Run alongside ONE native server generation, pointing at that generation's
-score-outbox directory. Never remove event files before an authenticated,
+Run alongside the existing single native server, using channel-specific
+score-outbox/<channel>/ directories. Never remove event files before an authenticated,
 committed acknowledgement. No live service installation is performed here.
 """
 import argparse
@@ -26,7 +26,12 @@ def retain_commit_receipt(event_path: Path, event: dict, channel: str) -> None:
     The central participant-visible receipt is queried through /race-receipt.
     This local receipt is only for recovery by a trusted generation worker.
     """
-    directory = event_path.parent.parent / "score-receipts"
+    # Existing historical flat outboxes remain valid for direct recovery/tests.
+    # New simultaneous channels must retain receipts in separate namespaces.
+    if event_path.parent.name in CHANNELS:
+        directory = event_path.parent.parent.parent / "score-receipts" / channel
+    else:
+        directory = event_path.parent.parent / "score-receipts"
     if directory.is_symlink():
         raise ValueError("Refusing linked score receipt directory")
     directory.mkdir(mode=0o700, exist_ok=True)
@@ -143,7 +148,7 @@ def main():
     if not re.fullmatch(r"[a-f0-9]{64}", key):
         p.error("Missing server-only score writer secret")
     while True:
-        delivered, failed = deliver_pending(a.data / "score-outbox", a.channel, a.api, key)
+        delivered, failed = deliver_pending(a.data / "score-outbox" / a.channel, a.channel, a.api, key)
         print(f"score delivery: channel={a.channel} delivered={delivered} pending_errors={failed}", flush=True)
         if a.once:
             break

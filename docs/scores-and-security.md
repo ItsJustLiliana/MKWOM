@@ -1,31 +1,36 @@
-# MKWOM single-server scores (Beta/Release)
+# MKWOM Beta / Release on one STRATO server
 
-PR #20 intentionally uses the existing **single** native lobby service and existing account storage. A server-binary update may disconnect live games. Zero-downtime rolling updates and old-lobby drain are tracked separately in issue #33.
+Release and Beta may use the **same existing native lobby process and account/friends data**, while **game sessions and scores stay separated by channel**. A normal server update still stops and restarts the game server; issue #33 tracks optional zero-downtime rolling updates.
 
-## Storage and scoring contract
+## Runtime score identity
 
-- One persistent account database contains existing users, sessions, friend-code account identities, and score ledgers.
-- Scores are isolated by **channel** (`beta`, `release`) and **mode** (`race`, `knockout`, `battle`).
-- Display rating begins at 3000 independently for each account/channel/mode. The account API computes subsequent Elo from referee finishing positions; it does not trust submitted point deltas.
-- The native game server queues completed race results in `<server data>/score-outbox`. The delivery service retries until the account API confirms transaction persistence. Duplicate events are idempotent. Existing `score-receipts` are retained locally.
-- Completed results depend on the connected server being configured with `MKWOM_SCORE_CHANNEL`. Without it, legacy server behavior remains and new account scores are not written.
-- The server still receives client-originated finishing-order reports; this is not full gameplay anti-cheat.
+- The launcher requests an HMAC-signed v2 ticket containing `beta` or `release`. The native server verifies the ticket before associating the player with a channel.
+- Matchmaking tickets, backfill, reattachment, private room joins, aliases and session lookups check the signed channel. Beta players must never be put into Release matches or vice versa.
+- Completed Race / Knockout Tour / Battle results are queued in `server/score-outbox/<channel>/<race-id>.json`. The central account API keeps separate Elo ledgers by account, channel and game mode, each initially rated 3000.
+- The Beta delivery worker reads **only** `score-outbox/beta`, and Release reads **only** `score-outbox/release`, authenticated with different server-only secrets. Receipts live under `server/score-receipts/<channel>/`. Matching race IDs in different channels cannot collide.
+- Pre-beta / legacy unscoped sessions do not record score events. Previously queued flat `server/score-outbox/*.json` files are not removed or automatically reclassified: back them up and migrate deliberately only after verifying their originating channel.
+- The native referee still processes client-reported finishing positions, so score security is not a guarantee against modified clients.
 
-## One-time server setup
+## One-time STRATO setup (before Release)
 
-1. Back up the current account database and native `server/` data before changing any service. Keep the existing CA, account directory and friend data; **do not** create a new data directory on promotion.
-2. Provision `MKWOM_SCORE_BETA_KEY` and `MKWOM_SCORE_RELEASE_KEY` in the **account API** environment with separate 64-character lowercase hexadecimal secrets. The client must never receive them.
-3. Select exactly one channel for the currently running native lobby service: set `MKWOM_SCORE_CHANNEL=beta` or `release`, and keep `MKWOM_GAME_TICKET_KEY` aligned with the account API. Existing tickets then require an explicit matching channel.
-4. Create a private user-owned environment file such as `~/.config/mkwom/score-release.env` containing `MKWOM_SCORE_RELEASE_KEY=<secret>`. Restrict it to mode 0600. The worker must run on the same host as the account API, where loopback `http://127.0.0.1:9081` is reachable.
-5. After the normal server artifact is deployed, run `python3 tools/install_score_service.py --root ~/projects/MKWOM-server --channel release --env-file ~/.config/mkwom/score-release.env` (replace channel appropriately). This enables `mkwom-score-release.service`. The service points to the existing `server/` outbox, not a new generation.
-6. Confirm the user service is active and that the resulting per-channel score appears under the authenticated `GET /scores?channel=...` endpoint.
+1. Back up **both** the account API database and native `server/` data, including friend relationships and TLS identity. Use the existing native data directory; never initialize a second writer.
+2. Configure `MKWOM_GAME_TICKET_KEY` identically for the account API and native server, and explicitly set `MKWOM_ACCOUNT_ENFORCE=1` and `MKWOM_REQUIRE_SCOPED_TICKETS=1` on the native server. These prevent unscoped old clients from entering scored channels.
+3. **Unset `MKWOM_SCORE_CHANNEL` on the native server.** The old single-channel override would reject the other channel and block dual-channel promotion. The server now derives the channel from each signed v2 ticket.
+4. Provision distinct `MKWOM_SCORE_BETA_KEY` and `MKWOM_SCORE_RELEASE_KEY` in the account API service. Make user-owned 0600 private environment files for the corresponding score workers. Never commit or expose writer keys to the game, client or CI logs.
+5. Deploy the new native server archive using the normal authenticated single-server deploy workflow. The archive now includes `score_delivery.py` and `install_score_service.py`; the deployer stages both in `~/projects/MKWOM-server/tools/` but deliberately does not activate secrets or services.
+6. Run both channel-specific service installers as the `mkwom` user:
+   - `python3 ~/projects/MKWOM-server/tools/install_score_service.py --root ~/projects/MKWOM-server --channel beta --env-file ~/.config/mkwom/score-beta.env`
+   - `python3 ~/projects/MKWOM-server/tools/install_score_service.py --root ~/projects/MKWOM-server --channel release --env-file ~/.config/mkwom/score-release.env`
+7. Confirm `mkwom-score-beta.service`, `mkwom-score-release.service`, `mkw-lobby.service` and the local account API are healthy.
 
-## Deployments
+The `Promote queued build to Beta or approved Beta to Release` workflow now runs **read-only STRATO preflight** before creating a stable release draft. It rejects missing workers, a legacy single-channel override, invalid ticket-key setup or an unreachable local account API. It does **not** run live multiplayer or automatically provision secrets.
 
-The existing `tools/deploy_server.py` continues to stop/back up/replace/start the **one** native server when the executable changes. Its optional score worker staging copies the new worker into `tools/score_delivery.py`; it does **not** provision secrets, change the server service's `MKWOM_SCORE_CHANNEL` environment, or silently enable a score worker. Existing accounts and friend data remain under the same native data path.
+## Acceptance before public Release
 
-If the score delivery service is already running when its Python file changes, restart that user service to load the new code. The queue remains on disk for retries. Do not delete the `score-outbox` during deployments.
+- On Beta, complete at least one actual two-PC Race, Knockout Tour and Battle scenario, including a friend join and return to matchmaking.
+- Confirm authenticated `/scores?channel=beta&game_mode=...` and `/scores?channel=release&game_mode=...` keep separate histories and ratings, including retries after worker restart and same race IDs.
+- Verify an existing account and friends after ordinary stop/backup/update/start.
+- Verify that a Beta player cannot enter a Release private room or matchmade lobby, and vice versa.
+- Confirm the Release build uses the exact approved Beta binaries (the existing promotion flow does not rebuild these artifacts).
 
-## Before shipping to players
-
-Require passing patch/build tests, an actual completed game event under the correct channel and mode, central receipt and visible score, failure/retry test, and account/friends retention. Mode classification and rank integrity in real play still require external verification. A green CI run alone does not verify live multiplayer behavior.
+**Automated CI checks alone do not fulfill the real-PC acceptance test. Do not enable stable Release until both are complete.**

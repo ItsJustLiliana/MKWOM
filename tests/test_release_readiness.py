@@ -1,0 +1,82 @@
+"""Release channel must fail closed if native/game/score services are misconfigured."""
+import urllib.error
+
+import pytest
+
+from tools import check_release_readiness as readiness
+
+
+def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path, monkeypatch):
+    root = tmp_path / "mkwom"
+    (root / "server" / "pki").mkdir(parents=True)
+    (root / "server" / "pki" / "ca.der").write_bytes(b"ca")
+    (root / "server" / "accounts.tsv").write_text("existing account")
+    (root / "tools").mkdir()
+    (root / "tools" / "score_delivery.py").write_text("# worker")
+    variables = {
+        b"MKWOM_GAME_TICKET_KEY": b"a" * 64,
+        b"MKWOM_ACCOUNT_ENFORCE": b"1",
+        b"MKWOM_REQUIRE_SCOPED_TICKETS": b"1",
+    }
+    accounts_env = {
+        b"MKWOM_GAME_TICKET_KEY": b"a" * 64,
+        b"MKWOM_SCORE_BETA_KEY": b"b" * 64,
+        b"MKWOM_SCORE_RELEASE_KEY": b"c" * 64,
+    }
+    worker_beta = {b"MKWOM_SCORE_BETA_KEY": b"b" * 64}
+    worker_release = {b"MKWOM_SCORE_RELEASE_KEY": b"c" * 64}
+    process = {
+        "mkw-lobby.service": variables,
+        "mkwom-accounts.service": accounts_env,
+        "mkwom-score-beta.service": worker_beta,
+        "mkwom-score-release.service": worker_release,
+    }
+    monkeypatch.setattr(readiness, "process_environment", lambda unit: process[unit])
+
+    def unit_value(unit, key):
+        if key == "MainPID":
+            return "1234"
+        if unit == "mkwom-score-beta.service":
+            return "argv[]=python worker --channel beta ;"
+        if unit == "mkwom-score-release.service":
+            return "argv[]=python worker --channel release ;"
+        return ""
+
+    inactive = set()
+    monkeypatch.setattr(readiness, "unit_value", unit_value)
+    monkeypatch.setattr(readiness, "active", lambda unit: unit not in inactive)
+
+    class FakeResponse:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+
+    def probe(url, timeout):
+        if "/scores?" in url:
+            raise urllib.error.HTTPError(url, 401, "Unauthorized", None, None)
+        return FakeResponse()
+
+    monkeypatch.setattr(readiness.urllib.request, "urlopen", probe)
+    readiness.check_release_ready(root)
+    variables[b"MKWOM_SCORE_CHANNEL"] = b"beta"
+    with pytest.raises(RuntimeError, match="single-channel"):
+        readiness.check_release_ready(root)
+    del variables[b"MKWOM_SCORE_CHANNEL"]
+    inactive.add("mkwom-score-release.service")
+    with pytest.raises(RuntimeError, match="release.service"):
+        readiness.check_release_ready(root)
+    inactive.clear()
+    del variables[b"MKWOM_GAME_TICKET_KEY"]
+    with pytest.raises(RuntimeError, match="ticket key"):
+        readiness.check_release_ready(root)
+    variables[b"MKWOM_GAME_TICKET_KEY"] = b"a" * 64
+    variables[b"MKWOM_REQUIRE_SCOPED_TICKETS"] = b"0"
+    with pytest.raises(RuntimeError, match="Signed Beta/Release"):
+        readiness.check_release_ready(root)
+
+    variables[b"MKWOM_REQUIRE_SCOPED_TICKETS"] = b"1"
+    worker_release[b"MKWOM_SCORE_RELEASE_KEY"] = b"b" * 64
+    with pytest.raises(RuntimeError, match="score keys differ"):
+        readiness.check_release_ready(root)

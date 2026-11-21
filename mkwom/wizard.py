@@ -11,7 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .accounts_client import authenticate, current_user, token, AuthError
 from .autostart import install_helper
-from .cli import COMMUNITY_ENDPOINT, fetch_channel, update
+from .cli import fetch_channel, launch, update
 from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import read_json, uninstall
@@ -32,7 +32,7 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     """Commit the patch only after the wizard's explicit Install click.
 
     The progress callback describes completed phases, not fabricated bytes.
-    No game process is started; Done closes the wizard.
+    The game only starts when the user explicitly chooses Open Launcher.
     """
     def phase(progress: int, description: str):
         if report is not None:
@@ -56,7 +56,7 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     phase(85, "Saving your multiplayer configuration")
     persist_online_settings(game)
     install_helper(game)
-    phase(100, "Installation complete. Use your game shortcut to play.")
+    phase(100, "Installation complete. You can now open the launcher.")
     return COMPLETE
 
 
@@ -116,6 +116,8 @@ class SetupWizard:
         self.progress_label = tk.StringVar(value="")
         self.progress = tk.IntVar(value=0)
         self._layout()
+        for variable in (self.game, self.action, self.channel, self.username, self.password):
+            variable.trace_add('write', self._input_changed)
         self.show_step()
         self.root.after(100, self.poll)
 
@@ -146,7 +148,7 @@ class SetupWizard:
                     logo.create_rectangle(8 + col * 9, 8 + row * 9, 17 + col * 9, 17 + row * 9,
                                           fill="#e8f1ff", outline="")
         self._label(nav, "MKWOM", 21, bold=True, bg=NAV).pack(anchor="w")
-        self._label(nav, "Mario Kart World Online", 9, MUTED, bg=NAV).pack(anchor="w", pady=(0, 32))
+        self._label(nav, "Mario Kart World: Online Multiplayer", 9, MUTED, bg=NAV).pack(anchor="w", pady=(0, 32))
         self.step_labels = []
         for idx, name in enumerate(STEPS):
             item = self._label(nav, f"{idx + 1:02d}   {name}", 11, MUTED, bg=NAV, anchor="w")
@@ -154,7 +156,6 @@ class SetupWizard:
             self.step_labels.append(item)
         tk.Frame(nav, bg=NAV).pack(fill="both", expand=True)
         self._label(nav, "MKW Recomp compatible", 9, MUTED, bg=NAV).pack(anchor="w")
-        self._label(nav, "STRATO community server", 9, MUTED, bg=NAV).pack(anchor="w", pady=(4, 0))
 
         right = tk.Frame(shell, bg=BG, padx=38, pady=26)
         right.pack(side="left", fill="both", expand=True)
@@ -190,6 +191,83 @@ class SetupWizard:
         self._label(self.body, label, 10, bold=True).pack(anchor="w")
         return self._input(variable, secret=secret)
 
+    def _input_changed(self, *_):
+        if hasattr(self, "next") and not self.complete:
+            self._update_continue_state()
+
+    @staticmethod
+    def _has_saved_login() -> bool:
+        try:
+            return bool(token())
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+    def can_continue(self) -> bool:
+        """UI gating; advance and account service still revalidate every action."""
+        if self.busy or self.complete:
+            return False
+        if self.step == 0:
+            value = self.game.get().strip().strip('"')
+            return bool(value) and valid_game_folder(Path(value).expanduser())
+        if self.step == 1:
+            return self.action.get() in ("reinstall", "uninstall")
+        if self.step == 2:
+            return self.channel.get() in ("beta", "release")
+        if self.step == 3:
+            return bool(self.username.get().strip() and self.password.get()) or self._has_saved_login()
+        if self.step == 4:
+            value = self.game.get().strip().strip('"')
+            return (bool(value) and valid_game_folder(Path(value).expanduser())
+                    and self.channel.get() in ("beta", "release")
+                    and bool(self.username.get().strip() or self._has_saved_login()))
+        return False
+
+    def _update_continue_state(self):
+        enabled = self.can_continue()
+        self.next.configure(state="normal" if enabled else "disabled",
+                            bg=BLUE if enabled else "#303643",
+                            fg="white" if enabled else "#8994a5",
+                            activebackground="#3c7aff" if enabled else "#303643")
+
+    def _choice(self, variable, value: str, title: str, detail: str):
+        """A blue-square radio choice with a white drawn tick, no platform glyph."""
+        selected = variable.get() == value
+        bg = "#222b3d" if selected else "#202632"
+        frame = tk.Frame(self.body, bg=bg, cursor="hand2", takefocus=1, padx=14, pady=12,
+                         highlightthickness=1, highlightbackground=BLUE if selected else "#364153")
+        frame.pack(fill="x", pady=6)
+        mark = tk.Canvas(frame, width=25, height=25, bg=bg, highlightthickness=0)
+        mark.pack(side="left", padx=(0, 13))
+        mark.create_rectangle(3, 3, 22, 22, fill=BLUE if selected else "#1c2331",
+                              outline=BLUE if selected else "#67748b", width=2)
+        if selected:
+            mark.create_line(7, 13, 11, 17, 18, 9, fill="white", width=2.5,
+                             capstyle=tk.ROUND, joinstyle=tk.ROUND)
+        info = tk.Frame(frame, bg=bg)
+        info.pack(side="left", fill="x", expand=True)
+        headline = self._label(info, title, 11, TEXT, bold=True, bg=bg, anchor="w")
+        headline.pack(anchor="w")
+        description = self._label(info, detail, 9, MUTED, bg=bg, anchor="w")
+        description.pack(anchor="w", pady=(3, 0))
+        for element in (frame, mark, info, headline, description):
+            element.bind("<Button-1>", lambda _event, choice=value: (variable.set(choice), self.show_step()))
+        for key in ("<Return>", "<space>"):
+            frame.bind(key, lambda _event, choice=value: (variable.set(choice), self.show_step()))
+
+    def open_launcher(self):
+        """Launch game after installation and close setup only if launch succeeds."""
+        if self.busy or self.completed_action != "install" or not self.complete:
+            return
+        try:
+            game = Path(self.game.get().strip().strip('"')).expanduser()
+            if not valid_game_folder(game):
+                raise ValueError("The game installation can no longer be found.")
+            launch(game)
+        except Exception as exc:
+            messagebox.showerror("Could not open launcher", str(exc))
+            return
+        self.close()
+
     def show_step(self):
         for widget in self.body.winfo_children():
             widget.destroy()
@@ -205,7 +283,12 @@ class SetupWizard:
             self._label(self.body, ("Original game files restored. Saves and your Windows account are kept." if self.completed_action == "uninstall" else "You can now start Mario Kart World from mkw.exe.\nYour login and server settings are saved securely."),
                         11, MUTED, justify="left").pack(anchor="w")
             self.back.configure(state="disabled")
-            self.next.configure(text="Done", command=self.close)
+            if self.completed_action == "uninstall":
+                self.next.configure(text="Close", command=self.close, state="normal", bg=BLUE, fg="white")
+            else:
+                self.back.configure(text="Close", command=self.close, state="normal", bg="#252b36", fg=MUTED)
+                self.next.configure(text="Open Launcher", command=self.open_launcher,
+                                    state="normal", bg=BLUE, fg="white")
             return
         titles = ("Choose your game folder", "MKWOM already installed", "Choose update channel",
                   "Sign in to MKWOM", "Ready to install", "Installing multiplayer")
@@ -217,6 +300,7 @@ class SetupWizard:
                      "Do not close the patcher during installation or removal.")
         self.heading.configure(text=titles[self.step])
         self.subtitle.configure(text=subtitles[self.step])
+        self.back.configure(text="Back", command=self.previous, bg="#252b36", fg=TEXT)
         self.next.configure(text="Uninstall" if self.step == 1 and self.action.get() == "uninstall" else "Install" if self.step == 4 else "Continue  →",
                             command=self.advance)
         if self.step == 0:
@@ -230,18 +314,13 @@ class SetupWizard:
             self._label(self.body, "Version: " + str(self.installation.get("version", "unknown")), 10, MUTED).pack(anchor="w")
             for name, detail in (("reinstall", "Reinstall or switch update channel"),
                                  ("uninstall", "Restore original game files; keep saves")):
-                tk.Radiobutton(self.body, text=f"{name.title()} — {detail}", variable=self.action,
-                               value=name, command=self.show_step, bg=PANEL, fg=TEXT,
-                               selectcolor="#303c52", activebackground=PANEL, activeforeground=TEXT,
-                               font=("Segoe UI", 11), anchor="w").pack(fill="x", pady=12)
+                self._choice(self.action, name, name.title(), detail)
         elif self.step == 2:
             self._label(self.body, "Update channel", 11, bold=True).pack(anchor="w")
             for name, detail in (("release", "Stable, approved updates"), ("beta", "Test the latest approved Beta")):
-                tk.Radiobutton(self.body, text=f"{name.title()}   —   {detail}", variable=self.channel,
-                               value=name, bg=PANEL, fg=TEXT, selectcolor="#303c52",
-                               activebackground=PANEL, activeforeground=TEXT,
-                               font=("Segoe UI", 11), anchor="w").pack(fill="x", pady=10)
-            self._label(self.body, f"Official server: {COMMUNITY_ENDPOINT}", 10, MUTED).pack(anchor="w", pady=15)
+                self._choice(self.channel, name, name.title(), detail)
+            self._label(self.body, "The official server is configured automatically.",
+                        10, MUTED).pack(anchor="w", pady=15)
         elif self.step == 3:
             self._field("Username", self.username)
             self._field("Password", self.password, secret=True)
@@ -251,7 +330,7 @@ class SetupWizard:
                         10, MUTED, wraplength=550, justify="left").pack(anchor="w", pady=16)
         elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
-                                 ("Server", COMMUNITY_ENDPOINT), ("Account", self.username.get() or "Saved account")):
+                                 ("Account", self.username.get() or "Saved account")):
                 self._label(self.body, label.upper(), 9, MUTED, bold=True).pack(anchor="w", pady=(10, 0))
                 self._label(self.body, value, 12, bold=True, wraplength=540, justify="left").pack(anchor="w")
             self._label(self.body, "The install creates backups and preserves existing saves.",
@@ -266,6 +345,7 @@ class SetupWizard:
                         wraplength=550, justify="left").pack(anchor="w", pady=10)
             self.back.configure(state="disabled")
             self.next.configure(state="disabled")
+        self._update_continue_state()
 
     def choose(self):
         folder = filedialog.askdirectory(title="Select the official Mario Kart World game directory")
@@ -350,7 +430,7 @@ class SetupWizard:
         )
 
     def advance(self):
-        if self.busy:
+        if self.busy or not self.can_continue():
             return
         if self.step == 0:
             game = Path(self.game.get())

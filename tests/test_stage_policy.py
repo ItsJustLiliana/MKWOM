@@ -116,3 +116,13 @@ def test_release_channel_verifies_public_patch_from_approved_beta():
     assert 'args.extend(["--patch-asset", public_asset])' in activation
     channel = contents("tools/channel.py")
     assert "a.patch_asset" in channel
+
+
+def test_strato_ssh_secrets_have_real_line_endings_in_queue_workflow():
+    workflow = contents(".github/workflows/build.yml")
+    # printf must interpret a single backslash-n, not print literal \\n bytes into
+    # the private key / known_hosts files. Strict host verification stays enabled.
+    assert "printf '%s\\n'" in workflow
+    assert "printf '%s\\\\n'" not in workflow
+    assert "DEPLOY_SSH_KNOWN_HOSTS" in workflow
+    assert "tools/queue_strato.py" in workflow

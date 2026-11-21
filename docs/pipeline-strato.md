@@ -1,13 +1,15 @@
 # STRATO deployment: automatic queue, manual Beta and Release
 
-The single STRATO VPS has **one live multiplayer server**. A pre-beta candidate is *not* a second online instance and has **no client updater channel**.
+STRATO must run **two independent live server instances**, Beta and Release, each with its own working directory, service, TLS identity, port set and native session/score outbox. A pre-beta candidate is not a running server and has no client updater channel.
+
+> **Migration block:** The historical live service `mkw-lobby.service` under `/home/mkwom/projects/MKWOM-server` is retained as Release. Beta must be provisioned separately at `/home/mkwom/projects/MKWOM-server-beta` as `mkw-lobby-beta.service` before any new Beta promotion. The workflow now **refuses unsafe promotions** until these distinct services are configured and verified. The currently running service is left untouched. Creating a Beta prerelease artifact does not override this protection. The native server still uses fixed STUN/NAT UDP ports; two independent running servers also need separate UDP/TURN routing before normal multiplayer can use both simultaneously. TCP-port separation alone is not sufficient.
 
 ## What happens on a change to main
 
 1. GitHub Actions builds the Windows patcher, multiplayer patch and Linux server, running all automated checks.
 2. After all checks succeed, it stores an immutable `pre-beta-<run>-<sha12>` candidate as a **private GitHub Actions artifact** (90-day retention), not as a public GitHub Release.
 3. The `queue-strato` job automatically transfers the checksum-verified Linux server archive into
-   `/home/mkwom/projects/MKWOM-server/candidates/<tag>/` over verified SSH and adds a
+   `/home/mkwom/projects/MKWOM-candidates/<tag>/` over verified SSH and adds a
    `queued-strato.json` receipt to the same workflow run as a private Actions artifact.
 4. **Nothing currently online is restarted.** No `channel-pre-beta` pointer is published.
 
@@ -22,7 +24,7 @@ GitHub **Actions → Promote queued build to Beta or approved Beta to Release �
 - Destination: `beta`
 - Candidate: leave empty for the newest successfully queued build, or supply a specific `pre-beta-<run>-<sha12>` tag
 
-Actions verifies the queue receipt, copies the *same build artifacts* into a numbered immutable GitHub prerelease (`v0.1.2-beta.1`, `v0.1.2-beta.2`, and so on), deploys the approved server binary to the **single live STRATO lobby**, checks TLS/health, and only then updates `channel-beta`. If deployment fails, the channel pointer is unchanged. The live service briefly restarts for a changed binary; schedule approvals accordingly.
+Actions verifies the queue receipt, copies the *same build artifacts* into a numbered immutable GitHub prerelease (`v0.1.2-beta.1`, `v0.1.2-beta.2`, and so on), deploys the approved server binary **only** to `mkw-lobby-beta.service` and `/home/mkwom/projects/MKWOM-server-beta`, checks TLS/health and only then updates `channel-beta`. If deployment fails, the channel pointer is unchanged. The live service briefly restarts for a changed binary; schedule approvals accordingly.
 
 ### Beta → Release
 
@@ -32,7 +34,7 @@ Run the *same* workflow with:
 - Candidate: leave empty to use the **currently active** Beta, or explicitly enter its `vX.Y.Z-beta.N` tag (legacy `beta-<run>-<sha12>` tags also work)
 - Release version: leave blank to promote `v0.1.2-beta.N` to `v0.1.2` (legacy Beta tags use the next stable patch version)
 
-It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart the same STRATO lobby, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. After publishing `v0.1.2`, the next Beta becomes `v0.1.3-beta.1`. Existing Beta prereleases stay available for rollback. Beta releases keep internal verification and deployment assets; the stable public Release exposes only the versioned Windows patcher EXE and optional patch ZIP. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
+It verifies the active Beta pointer and creates a **draft** non-prerelease GitHub Release. Only after your explicit Release approval does the workflow restart **only** `mkw-lobby.service`, run TLS/health checks, update `channel-release`, publish the stable GitHub Release, and mark it **Latest**. After publishing `v0.1.2`, the next Beta becomes `v0.1.3-beta.1`. Existing Beta prereleases stay available for rollback. Beta releases keep internal verification and deployment assets; the stable public Release exposes only the versioned Windows patcher EXE and optional patch ZIP. A regular build never restarts live lobbies. The separate `Re-activate existing Release` workflow is for manually repointing an already published Release, not normal promotion.
 
 ## One-time GitHub environment setup
 
@@ -44,18 +46,18 @@ Set these in **Settings → Environments → pre-beta**:
 | Secret | DEPLOY_USER | mkwom |
 | Secret | DEPLOY_SSH_KEY | Dedicated unencrypted automation-only private Ed25519 key (keep in GitHub secret only) |
 | Secret | DEPLOY_SSH_KNOWN_HOSTS | Pinned, independently verified VPS SSH host public key |
-| Variable | DEPLOY_ROOT | /home/mkwom/projects/MKWOM-server |
-| Variable | DEPLOY_UNIT | mkw-lobby.service |
+| Variable | DEPLOY_ROOT | **In Beta environment:** `/home/mkwom/projects/MKWOM-server-beta`; **in Release environment:** `/home/mkwom/projects/MKWOM-server` |
+| Variable | DEPLOY_UNIT | Beta: `mkw-lobby-beta.service`; Release: `mkw-lobby.service` |
 | Variable | LISTEN_HOST | 127.0.0.1 |
-| Variable | LOBBY_PORT | 18443 |
-| Variable | AUTO_DEPLOY | true, only after SSH preflight and real game/relay verification |
+| Variable | LOBBY_PORT | Beta: `19443`; Release: `18443` |
+| Variable | AUTO_DEPLOY | In Beta and Release environments only: `true`, **after** separate units and UDP/TURN networking are validated. Never set automatic live deployment on pre-beta. |
 
 The SSH key's public half must be authorized for `mkwom` on STRATO.
-The pre-beta environment needs no approval rule for automatic queueing. The **beta** and **release** GitHub environments can require approval/reviewers for the promotion and publication decision, but `beta` and `release` channels should never be configured as separate writable game hosts on this one VPS.
+The pre-beta environment needs no approval rule for automatic queueing. The **beta** and **release** GitHub environments each need their own `DEPLOY_ROOT`, `DEPLOY_UNIT`, `LOBBY_PORT` and deployment credentials. They can share the physical VPS and read-only SSH key, but **must not** share a native game service or data directory. A configured `pre-beta` environment has queue-only SSH credentials and no writable live-service deployment variables.
 
 Use the **Test STRATO SSH access** workflow first. A missing secret or bad host key must cause failures without falling back to Arch. The initial queue upload requires this setup; without it the build can still pass, but the queue stage fails and no receipt is issued.
 
-For the **beta** and **release** GitHub environments set `COMMUNITY_ENDPOINT=31.70.192.231:18443`. The Beta channel activation needs `AUTO_DEPLOY=true` in the beta environment; Release reuses the active Beta server.
+Configure Beta `COMMUNITY_ENDPOINT=31.70.192.231:19443` and Release `COMMUNITY_ENDPOINT=31.70.192.231:18443`, after both public listeners and UDP/TURN forwarding are actually usable. Client setup and direct game launches select their own channel endpoint. Neither endpoint is activated by a normal push. The Beta channel activation needs `AUTO_DEPLOY=true` in the beta environment; Release reuses the active Beta server.
 
 ## Scope and caveats
 

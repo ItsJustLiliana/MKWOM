@@ -76,7 +76,7 @@ jobs:
       contents: read
     with:
       tag: ${{ needs.promote.outputs.tag }}
-      environment: pre-beta
+      environment: beta
     secrets: inherit
   activate-beta:
     if: always() && inputs.destination == 'beta' && needs.promote.result == 'success' && needs.deploy-beta.result == 'success'
@@ -120,7 +120,7 @@ jobs:
       contents: read
     with:
       tag: ${{ needs.promote.outputs.candidate }}
-      environment: pre-beta
+      environment: release
       restart_if_unchanged: false
     secrets: inherit
   publish-stable:

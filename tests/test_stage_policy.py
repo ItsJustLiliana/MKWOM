@@ -126,3 +126,47 @@ def test_strato_ssh_secrets_have_real_line_endings_in_queue_workflow():
     assert "printf '%s\\\\n'" not in workflow
     assert "DEPLOY_SSH_KNOWN_HOSTS" in workflow
     assert "tools/queue_strato.py" in workflow
+
+
+def test_regular_push_does_not_mutate_live_release_or_beta_metadata():
+    workflow = contents(".github/workflows/build.yml")
+    assert "cleanup-old-prebeta:" not in workflow
+    assert "cleanup-legacy-stable-assets:" not in workflow
+    assert "tools/queue_strato.py" in workflow
+    queue = contents("tools/queue_strato.py")
+    assert "/home/mkwom/projects/MKWOM-candidates" in queue
+    assert "MKWOM-server/candidates" not in queue
+
+
+def test_beta_and_release_deployments_must_be_independent():
+    promote = contents(".github/workflows/promote.yml")
+    beta = promote.split("  deploy-beta:", 1)[1].split("  activate-beta:", 1)[0]
+    release = promote.split("  deploy-release:", 1)[1].split("  publish-stable:", 1)[0]
+    assert "environment: beta" in beta
+    assert "environment: release" in release
+    assert "environment: pre-beta" not in beta + release
+    remote = contents("tools/remote_deploy.py")
+    assert "MKWOM-server-beta" in remote
+    assert '"/home/mkwom/projects/MKWOM-server"' in remote
+    assert "mkw-lobby-beta.service" in remote
+    assert "mkw-lobby.service" in remote
+    assert 'stage not in targets' in remote
+    assert "preflight" in remote
+    assert "DEPLOY_STAGE" in contents(".github/workflows/deploy.yml")
+
+
+def test_isolation_guard_runs_before_any_stop():
+    script = contents("tools/deploy_server.py")
+    assert "STAGE_TARGETS" in script
+    assert 'if (a.root, a.unit, a.port) != (expected_root, expected_unit, expected_port):' in script
+    assert "Opposite live channel is unhealthy; refusing promotion" in script
+    assert script.index("Opposite live channel is unhealthy") < script.index('"stop", a.unit')
+
+
+def test_channel_endpoints_must_be_distinct():
+    from mkwom.cli import channel_endpoint
+    assert channel_endpoint("beta") == "31.70.192.231:19443"
+    assert channel_endpoint("release") == "31.70.192.231:18443"
+    import pytest
+    with pytest.raises(ValueError, match="build queue"):
+        channel_endpoint("pre-beta")

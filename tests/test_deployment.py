@@ -42,13 +42,19 @@ def test_deploy_and_health_rollback(tmp_path, monkeypatch, failure):
     (data / "pki/ca.der").write_bytes(b"saved CA")
     (data / "accounts.tsv").write_text("existing account")
     (root / "turnserver.conf").write_text("existing relay secret")
+    other_root = tmp_path / "other-channel"
+    other_root.mkdir()
+    monkeypatch.setattr(deployment, "STAGE_TARGETS", {
+        "release": (root, "mkw-lobby-release.service", 18443),
+        "beta": (other_root, "mkw-lobby-beta.service", 19443),
+    })
     archive = tmp_path / "server.tar.gz"
     digest = artifact(archive)
     events = []
 
     def output(args, **kwargs):
         if "--property=WorkingDirectory" in args:
-            return str(root)
+            return str(other_root) if "mkw-lobby-beta.service" in args else str(root)
         if "--property=ExecStart" in args:
             return f"{{ path={exe} ; argv[]={exe} --host 127.0.0.1 --port 18443 --data {data} ; }}"
         return b"existing unit"
@@ -68,8 +74,9 @@ def test_deploy_and_health_rollback(tmp_path, monkeypatch, failure):
         if failure:
             raise ValueError("unhealthy target")
     monkeypatch.setattr(deployment, "health", health)
-    monkeypatch.setattr(sys, "argv", ["deploy", str(archive), "--sha256", digest, "--root", str(root),
-                                    "--host", "127.0.0.1"])
+    monkeypatch.setattr(sys, "argv", ["deploy", str(archive), "--stage", "release",
+                                    "--sha256", digest, "--root", str(root),
+                                    "--unit", "mkw-lobby-release.service", "--host", "127.0.0.1"])
     if failure:
         with pytest.raises(ValueError, match="unhealthy"):
             deployment.main()

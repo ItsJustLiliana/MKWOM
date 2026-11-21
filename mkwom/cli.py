@@ -20,7 +20,14 @@ from .installer import install, uninstall, read_json, json_write, game_closed, v
 REPO = "ItsJustLiliana/MKWOM"
 CHANNELS = ("pre-beta", "beta", "release")
 # Official community lobby: no Arch/home-server fallback.
-COMMUNITY_ENDPOINT = "31.70.192.231:18443"
+COMMUNITY_ENDPOINT = "31.70.192.231:18443"  # Stable Release only
+COMMUNITY_ENDPOINTS = {"beta": "31.70.192.231:19443", "release": COMMUNITY_ENDPOINT}
+
+
+def channel_endpoint(channel: str) -> str:
+    if channel not in COMMUNITY_ENDPOINTS:
+        raise ValueError("Pre-beta is a build queue, not an online game channel")
+    return COMMUNITY_ENDPOINTS[channel]
 
 
 def download(url: str, limit: int) -> bytes:
@@ -120,7 +127,7 @@ def update(game: Path, channel: str, *, force: bool = False):
     settings = read_json(game / ".mkwom/settings.json", {})
     settings["channel"] = channel
     # Pin the official STRATO lobby; overwrite legacy Arch/saved endpoint values.
-    settings["endpoint"] = COMMUNITY_ENDPOINT
+    settings["endpoint"] = channel_endpoint(channel)
     settings["endpoint_mode"] = "channel"
     json_write(game / ".mkwom/settings.json", settings)
     # Also configure direct game launches and the scheduler gate on CLI updates.
@@ -144,7 +151,7 @@ def launch(game: Path):
         raise ValueError("install the MKWOM patch first")
     verify(game, installed)
     settings = read_json(game / ".mkwom/settings.json", {})
-    address = COMMUNITY_ENDPOINT
+    address = channel_endpoint(settings.get("channel", "release"))
     env = dict(os.environ, MKW_ONLINE="1", MKW_ONLINE_SERVER=endpoint(address), MKW_SERVER_HOST="0",
                MKWOM_MANAGED="1", MKW_UPDATE_CHECK="0")
     # The wrapper owns patch updates; the upstream in-game updater would replace the patched runtime.
@@ -206,9 +213,10 @@ def main(argv=None):
             uninstall(game)
             print("Original runtime restored; saves, profiles and INI were preserved.")
         elif a.command == "configure":
-            if a.endpoint != COMMUNITY_ENDPOINT:
-                raise ValueError("MKWOM only supports the official STRATO multiplayer server")
-            settings["endpoint"] = COMMUNITY_ENDPOINT
+            selected = settings.get("channel", "release")
+            if a.endpoint != channel_endpoint(selected):
+                raise ValueError("MKWOM only supports the dedicated server for its selected channel")
+            settings["endpoint"] = channel_endpoint(selected)
             settings["endpoint_mode"] = "channel"
             json_write(game / ".mkwom/settings.json", settings)
             print("Official MKWOM STRATO server configured.")

@@ -9,6 +9,12 @@ import sys
 tag, channel = os.environ["RELEASE_TAG"], os.environ["CHANNEL"]
 if channel not in ("beta", "release") or not re.fullmatch(r"[A-Za-z0-9._+-]+", tag):
     raise ValueError("invalid channel/tag")
+EXPECTED_ENDPOINTS = {
+    "beta": "31.70.192.231:19443",
+    "release": "31.70.192.231:18443",
+}
+if os.environ.get("COMMUNITY_ENDPOINT") != EXPECTED_ENDPOINTS[channel]:
+    raise ValueError("Refusing to activate a channel on the other channel's lobby port")
 # Do not publish an unverified newly configured public server endpoint.
 if channel == "beta" and os.environ.get("AUTO_DEPLOY") != "true":
     raise ValueError("COMMUNITY_ENDPOINT requires AUTO_DEPLOY=true and a successful deployment")

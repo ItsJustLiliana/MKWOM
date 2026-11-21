@@ -1,6 +1,6 @@
 """Direct-launch settings must preserve game configuration and never store auth secrets."""
 from mkwom.direct_launch import persist_online_settings
-from mkwom.cli import COMMUNITY_ENDPOINT
+from mkwom.cli import COMMUNITY_ENDPOINT, COMMUNITY_ENDPOINTS
 from mkwom.installer import json_write
 
 
@@ -10,14 +10,14 @@ def test_direct_launch_persists_online_without_overwriting_preferences(tmp_path)
         b"\xef\xbb\xbf[video]\r\nFPS=60\r\n\r\n[online]\r\n; a player comment\r\nONLINE=0\r\n"
     )
     json_write(game / ".mkwom/settings.json",
-               {"channel": "pre-beta", "endpoint": "community.example:18443"})
+               {"channel": "beta", "endpoint": "community.example:18443"})
     persist_online_settings(game)
     first = (game / "mkw.ini").read_bytes()
     assert first.startswith(b"\xef\xbb\xbf")
     assert b"FPS=60\r\n" in first
     assert b"; a player comment\r\n" in first
     assert b"ONLINE=1\r\n" in first
-    assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT + "\r\n").encode() in first
+    assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINTS["beta"] + "\r\n").encode() in first
     assert b"SERVER_HOST=0\r\n" in first
     assert b"UPDATE_CHECK=0\r\n" in first
     assert b"[diagnostics]\r\ncore_num_gate=1\r\n" in first
@@ -34,7 +34,7 @@ def test_direct_launch_replaces_legacy_server(tmp_path):
 
 
 def test_direct_launch_defaults_to_strato_server(tmp_path):
-    json_write(tmp_path / ".mkwom/settings.json", {"channel": "pre-beta"})
+    json_write(tmp_path / ".mkwom/settings.json", {"channel": "release"})
     persist_online_settings(tmp_path)
     assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINT).encode() in (tmp_path / "mkw.ini").read_bytes()
 
@@ -61,3 +61,14 @@ def test_direct_launch_creates_game_local_diagnostics_only(tmp_path):
     persist_online_settings(game)
     assert "[diagnostics]\ncore_num_gate=1\n" in (game / "mkw.ini").read_text()
     assert not (tmp_path / "mkw.ini").exists()
+
+
+def test_beta_and_release_direct_launch_use_independent_ports(tmp_path):
+    for channel in ("beta", "release"):
+        game = tmp_path / channel
+        game.mkdir()
+        json_write(game / ".mkwom/settings.json", {"channel": channel})
+        persist_online_settings(game)
+        assert ("ONLINE_SERVER=" + COMMUNITY_ENDPOINTS[channel]).encode() in (
+            game / "mkw.ini").read_bytes()
+    assert COMMUNITY_ENDPOINTS["beta"] != COMMUNITY_ENDPOINTS["release"]

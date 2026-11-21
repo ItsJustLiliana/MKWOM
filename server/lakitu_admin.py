@@ -185,7 +185,7 @@ def disconnect_player(channel: str, session_id: str,
 # Moderation uses the real, persistent account SQLite store. The admin gateway
 # remains behind the existing independent bearer token and Cloudflare Access;
 # no moderator mutation route is added to the public account API.
-_ACCOUNT = re.compile(r"[a-f0-9]{32}\\Z")
+_ACCOUNT = re.compile(r"[a-f0-9]{32}\Z")
 
 
 def account_id_or_422(value: str) -> str:

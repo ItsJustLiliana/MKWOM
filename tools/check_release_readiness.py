@@ -46,6 +46,8 @@ def check_release_ready(root: Path = ROOT) -> None:
         raise RuntimeError("Native server is missing its private account ticket key")
     if variables.get(b"MKWOM_ACCOUNT_ENFORCE") != b"1":
         raise RuntimeError("Native account enforcement must be explicitly enabled")
+    if variables.get(b"MKWOM_REQUIRE_SCOPED_TICKETS") != b"1":
+        raise RuntimeError("Signed Beta/Release tickets must be required")
     if not (root / "tools" / "score_delivery.py").is_file():
         raise RuntimeError("Channel-aware score delivery worker not deployed")
     for channel in ("beta", "release"):

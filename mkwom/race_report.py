@@ -140,7 +140,7 @@ def assess(events: list[dict]) -> dict:
             continue
         candidates = [(abs((when - other).total_seconds()), prior)
                       for other, prior in timed[max(0, i - 250):i]
-                      if other["kind"] in triggers and abs((when - other).total_seconds()) <= WINDOW_SECONDS]
+                      if prior["kind"] in triggers and abs((when - other).total_seconds()) <= WINDOW_SECONDS]
         if not candidates:
             continue
         _, prior = min(candidates, key=lambda pair: pair[0])

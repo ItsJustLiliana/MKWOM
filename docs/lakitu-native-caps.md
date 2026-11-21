@@ -1,32 +1,23 @@
-# Lakitu native lobby cap — first enforcement stage
+# Lakitu native control integration
 
-This branch adds **native server-side per-channel lobby creation admission** (not yet live administration). The C runtime checks caps at the common creation function for **both private rooms and matchmade sessions**.
+This change adds live channel-scoped lobby/member telemetry and privileged controls to the native MKWOM server and the existing separate authenticated Lakitu gateway.
 
-## Settings
+## Native operations
 
-Use the existing server settings mechanism (see `srv_setting_int`) to configure:
+- Atomic lobby/player snapshots in the private server data directory: lakitu-native.json. Includes IDs, channel, mode, game version, account display name, lobby state, capacity and member connection state.
+- Beta/Release lobby caps are checked during new private-room creation and matchmaking. Existing sessions remain alive even when above cap.
+- Admin caps can be changed without restarting the server. Limits persist in lakitu-limits.txt.
+- Lock/unlock blocks or restores new joins; drain disables newcomers while existing members remain.
+- Graceful close waits for Gamesync listeners to leave, race completion and durable score-outbox write.
+- Force-close explicitly disconnects Gamesync connections and may discard an unfinished race result.
+- Player disconnect is scoped to the exact lobby/member Gamesync session, and does not ban an account.
 
-- `beta_lobby_cap` — maximum active Beta sessions, default `SESSIONS_MAX`
-- `release_lobby_cap` — maximum active Release sessions, default `SESSIONS_MAX`
+## Security and deployment
 
-Valid range: 1 through `SESSIONS_MAX`. These are **startup/configuration** settings, *not* live configurable from Lakitu. The existing `Lakitu.exe` controls remain disabled until the native admin IPC layer exists.
+The authenticated gateway uses a separate admin Bearer token and Cloudflare Access, with a native private file command/acknowledgement protocol under the existing owner-protected server data directory. No new public ports or game-auth bypass. Live controls are not advertised unless the native snapshot is fresh. Native controls run on the existing single-threaded game loop.
 
-## Behavioral contract
+Do not deploy or restart a live race merely because this PR is merged. The official promotion workflow still restarts the single native binary for a server change. Back up the native server directory and account database, schedule a quiet window, promote a tested build through the regular Beta/Release process, then update the Lakitu observer Python worktree on STRATO and restart ONLY mkwom-lakitu-admin.service. The current Windows Lakitu release already has the required tabs and Cloudflare login.
 
-- A session is counted in exactly the channel recorded on its signed matchmaking ticket or authorized player's identity.
-- Creating a new session in one channel is denied once that channel reaches its cap.
-- Existing private rooms, races and matchmaking sessions are **not** removed or disconnected when the configured cap is lower than the current active count.
-- Members may continue joining a valid existing session; the creation cap does not affect membership operations.
-- Beta and Release are counted separately, sharing the current existing native server process.
-- Legacy/unscoped sessions use existing admission behavior.
-- This implementation only executes checks on the native server's existing game-session event loop. There is no new thread or separate process and no extra public port.
+## Acceptance before public use
 
-## Still required for full Lakitu management
-
-1. Authenticated local native IPC with read-only channel-scoped session enumeration.
-2. Dynamic atomic runtime cap changes routed from the admin API, with persistent admin-config storage.
-3. Scoped player disconnect, lobby lock/unlock, graceful drain and force-close with acknowledgement/audit.
-4. No cross-channel identity confusion; enforce session generation IDs, member authorization and safe handling of in-flight race results.
-5. Actual multi-client/real-match tests and an operator-controlled release procedure.
-
-**Do not deploy this branch to the live STRATO server until native server CI passes and the change is validated on a test instance.** Current rolling release is not live; a server binary deployment still interrupts active games.
+Automated tests and compilation must pass, followed by real two-PC tests: separate Beta/Release players and scores; private and matched lobbies; lock/unlock; lowered cap while over limit; player disconnect; force-close of a disposable unfinished test race; graceful close after acknowledged results; reconnect and friends join; persistence across restart. Force-close can lose unfinished score data and is not a race-safe maintenance mechanism. This change does not implement rolling zero-downtime releases or permanent bans.

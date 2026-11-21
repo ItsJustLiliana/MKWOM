@@ -90,6 +90,12 @@ def install_score_worker(root: Path, stage: Path) -> None:
         os.replace(fresh, target)
 
 
+STAGE_TARGETS = {
+    "beta": (Path("/home/mkwom/projects/MKWOM-server-beta"), "mkw-lobby-beta.service", 19443),
+    "release": (Path("/home/mkwom/projects/MKWOM-server-release"), "mkw-lobby-release.service", 18443),
+}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("archive", type=Path)
@@ -104,15 +110,11 @@ def main():
     a = p.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9_.-]+\.service", a.unit) or not 1024 <= a.port <= 65533:
         p.error("invalid service or port")
-    targets = {
-        "beta": (Path("/home/mkwom/projects/MKWOM-server-beta"), "mkw-lobby-beta.service", 19443),
-        "release": (Path("/home/mkwom/projects/MKWOM-server-release"), "mkw-lobby-release.service", 18443),
-    }
-    expected_root, expected_unit, expected_port = targets[a.stage]
+    expected_root, expected_unit, expected_port = STAGE_TARGETS[a.stage]
     if (a.root, a.unit, a.port) != (expected_root, expected_unit, expected_port):
         p.error("Refusing shared Beta/Release service, directory or listener")
     other = "release" if a.stage == "beta" else "beta"
-    other_root, other_unit, other_port = targets[other]
+    other_root, other_unit, _ = STAGE_TARGETS[other]
     other_working = subprocess.check_output(
         ["systemctl", "--user", "show", other_unit,
          "--property=WorkingDirectory", "--value"], text=True).strip()

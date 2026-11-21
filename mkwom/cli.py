@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 import zipfile
@@ -62,7 +63,16 @@ def fetch_channel(channel: str) -> dict:
     """Fetch a channel manifest without changing the installation."""
     if channel not in CHANNELS:
         raise ValueError("unsupported update channel")
-    release = json.loads(download(f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
+    try:
+        release = json.loads(download(
+            f"https://api.github.com/repos/{REPO}/releases/tags/channel-{channel}", 2**20))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise ValueError(
+                f"The {channel} update channel has not been activated (GitHub 404). "
+                "Internal pre-beta builds never activate multiplayer automatically."
+            ) from None
+        raise
     assets = [a for a in release["assets"] if a["name"] == "channel.json"]
     if len(assets) != 1:
         raise ValueError("channel is not published yet")

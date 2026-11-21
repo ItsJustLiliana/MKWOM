@@ -33,7 +33,8 @@ def unpack(archive: Path, dest: Path, want: str) -> dict:
         legacy = {"mkw-server", "release.json", "LICENSE", "NOTICE.md",
                   "LICENSE.nghttp2", "LICENSE.mbedtls"}
         found = {m.name for m in members}
-        if found != legacy and found != legacy | {"score_delivery.py"}:
+        if found not in (legacy, legacy | {"score_delivery.py"},
+                         legacy | {"score_delivery.py", "install_score_service.py"}):
             raise ValueError("unexpected server archive inventory")
         if len(members) != len(found):
             raise ValueError("duplicate archive members")
@@ -71,21 +72,22 @@ def health(host: str, port: int, ca: Path):
 
 
 def install_score_worker(root: Path, stage: Path) -> None:
-    """Stage vetted worker code for a future opt-in service, but never start one."""
-    source = stage / "score_delivery.py"
-    if not source.is_file():
-        return  # Historic immutable Beta/Release archives had no worker.
+    """Stage vetted score worker and installer without enabling either service."""
     folder = root / "tools"
-    if folder.is_symlink():
-        raise ValueError("untrusted score worker directory")
-    folder.mkdir(mode=0o700, exist_ok=True)
-    target = folder / "score_delivery.py"
-    if target.is_symlink():
-        raise ValueError("untrusted score worker destination")
-    fresh = folder / ".score_delivery.new"
-    shutil.copy2(source, fresh)
-    fresh.chmod(0o600)
-    os.replace(fresh, target)
+    for name in ("score_delivery.py", "install_score_service.py"):
+        source = stage / name
+        if not source.is_file():
+            continue  # Historic immutable Beta/Release archives may lack either file.
+        if folder.is_symlink():
+            raise ValueError("untrusted score worker directory")
+        folder.mkdir(mode=0o700, exist_ok=True)
+        target = folder / name
+        if target.is_symlink():
+            raise ValueError("untrusted score worker destination")
+        fresh = folder / ("." + name + ".new")
+        shutil.copy2(source, fresh)
+        fresh.chmod(0o600)
+        os.replace(fresh, target)
 
 
 def main():

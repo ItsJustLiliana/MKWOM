@@ -149,7 +149,7 @@ def test_beta_and_release_deployments_must_be_independent():
     assert "MKWOM-server-beta" in remote
     assert "MKWOM-server-release" in remote
     assert "mkw-lobby-beta.service" in remote
-    assert "mkw-lobby-release.service" in remote
+    assert "mkw-lobby.service" in remote
     assert 'stage not in targets' in remote
     assert "preflight" in remote
     assert "DEPLOY_STAGE" in contents(".github/workflows/deploy.yml")

@@ -17577,7 +17577,7 @@ index 0000000..fb8f922
 +    char *doc = malloc(cap);
 +    if (!doc) return;
 +    size_t n = 0;
-+    int ok = lakitu_append(doc, cap, &n, "{\\"schema_version\\":1,\\"observed_at\\":%lld,\\"lobbies\\":[",
++    int ok = lakitu_append(doc, cap, &n, "{\"schema_version\":1,\"observed_at\":%lld,\"lobbies\":[",
 +                           (long long)time(NULL));
 +    for (int i = 0; ok && i < nsessions; i++) {
 +        SrvSession *s = sessions[i];
@@ -17587,9 +17587,9 @@ index 0000000..fb8f922
 +        lakitu_safe(config, sizeof config, s->config);
 +        lakitu_safe(version, sizeof version, s->version);
 +        ok = lakitu_append(doc, cap, &n,
-+            "%s{\\"id\\":\\"%s\\",\\"channel\\":\\"%s\\",\\"mode\\":\\"%s\\","
-+            "\\"version\\":\\"%s\\",\\"status\\":\\"%s\\",\\"capacity\\":%d,"
-+            "\\"player_count\\":%d,\\"created_at\\":%lld,\\"players\\":[",
++            "%s{\"id\":\"%s\",\"channel\":\"%s\",\"mode\":\"%s\","
++            "\"version\":\"%s\",\"status\":\"%s\",\"capacity\":%d,"
++            "\"player_count\":%d,\"created_at\":%lld,\"players\":[",
 +            i ? "," : "", id, channel, config, version,
 +            s->closed ? "closed" : s->listeners ? "connected" : "waiting",
 +            s->max_players, s->nmembers, (long long)s->created);
@@ -17597,12 +17597,12 @@ index 0000000..fb8f922
 +            char uid[32];
 +            lakitu_safe(uid, sizeof uid, s->members[k].uid);
 +            ok = lakitu_append(doc, cap, &n,
-+                "%s{\\"id\\":\\"%s\\",\\"name\\":\\"%s\\",\\"state\\":\\"%s\\"}",
++                "%s{\"id\":\"%s\",\"name\":\"%s\",\"state\":\"%s\"}",
 +                k ? "," : "", uid, uid, s->members[k].streams ? "connected" : "waiting");
 +        }
 +        if (ok) ok = lakitu_append(doc, cap, &n, "]}");
 +    }
-+    if (ok) ok = lakitu_append(doc, cap, &n, "],\\"players\\":[");
++    if (ok) ok = lakitu_append(doc, cap, &n, "],\"players\":[");
 +    int first = 1;
 +    for (int i = 0; ok && i < nsessions; i++) {
 +        SrvSession *s = sessions[i];
@@ -17613,16 +17613,16 @@ index 0000000..fb8f922
 +            char uid[32];
 +            lakitu_safe(uid, sizeof uid, s->members[k].uid);
 +            ok = lakitu_append(doc, cap, &n,
-+                "%s{\\"id\\":\\"%s\\",\\"name\\":\\"%s\\",\\"lobby_id\\":\\"%s\\","
-+                "\\"channel\\":\\"%s\\",\\"state\\":\\"%s\\"}",
++                "%s{\"id\":\"%s\",\"name\":\"%s\",\"lobby_id\":\"%s\","
++                "\"channel\":\"%s\",\"state\":\"%s\"}",
 +                first ? "" : ",", uid, uid, id, channel,
 +                s->members[k].streams ? "connected" : "waiting");
 +            first = 0;
 +        }
 +    }
 +    if (ok) ok = lakitu_append(doc, cap, &n,
-+        "],\\"limits\\":{\\"beta\\":{\\"max_lobbies\\":%d},"
-+        "\\"release\\":{\\"max_lobbies\\":%d}}}\n",
++        "],\"limits\":{\"beta\":{\"max_lobbies\":%d},"
++        "\"release\":{\"max_lobbies\":%d}}}\n",
 +        srv_setting_int("beta_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX),
 +        srv_setting_int("release_lobby_cap", SESSIONS_MAX, 1, SESSIONS_MAX));
 +    if (ok) {

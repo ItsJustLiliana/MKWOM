@@ -1,5 +1,5 @@
 """Release channel must fail closed if native/game/score services are misconfigured."""
-from pathlib import Path
+import urllib.error
 
 import pytest
 
@@ -18,14 +18,20 @@ def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path
         b"MKWOM_ACCOUNT_ENFORCE": b"1",
         b"MKWOM_REQUIRE_SCOPED_TICKETS": b"1",
     }
-    original_read_bytes = Path.read_bytes
-
-    def read_bytes(path):
-        if str(path) == "/proc/1234/environ":
-            return b"\x00".join(k + b"=" + v for k, v in variables.items()) + b"\x00"
-        return original_read_bytes(path)
-
-    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    accounts_env = {
+        b"MKWOM_GAME_TICKET_KEY": b"a" * 64,
+        b"MKWOM_SCORE_BETA_KEY": b"b" * 64,
+        b"MKWOM_SCORE_RELEASE_KEY": b"c" * 64,
+    }
+    worker_beta = {b"MKWOM_SCORE_BETA_KEY": b"b" * 64}
+    worker_release = {b"MKWOM_SCORE_RELEASE_KEY": b"c" * 64}
+    process = {
+        "mkw-lobby.service": variables,
+        "mkwom-accounts.service": accounts_env,
+        "mkwom-score-beta.service": worker_beta,
+        "mkwom-score-release.service": worker_release,
+    }
+    monkeypatch.setattr(readiness, "process_environment", lambda unit: process[unit])
 
     def unit_value(unit, key):
         if key == "MainPID":
@@ -68,4 +74,9 @@ def test_release_preflight_requires_both_channels_and_no_single_channel(tmp_path
     variables[b"MKWOM_GAME_TICKET_KEY"] = b"a" * 64
     variables[b"MKWOM_REQUIRE_SCOPED_TICKETS"] = b"0"
     with pytest.raises(RuntimeError, match="Signed Beta/Release"):
+        readiness.check_release_ready(root)
+
+    variables[b"MKWOM_REQUIRE_SCOPED_TICKETS"] = b"1"
+    worker_release[b"MKWOM_SCORE_RELEASE_KEY"] = b"b" * 64
+    with pytest.raises(RuntimeError, match="score keys differ"):
         readiness.check_release_ready(root)

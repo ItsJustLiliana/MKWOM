@@ -155,7 +155,12 @@ def test_parallel_channels_keep_identical_race_id_and_receipts_independent(setup
     race_id = "same-race-id-0001"
     beta_event = event(beta, race_id, "beta", uid, 10)
     release_event = event(release, race_id, "release", uid, -10)
-    assert score_delivery.deliver_pending(beta, "beta", "http://127.0.0.1:9081", "ac" * 32) == (1, 0)
+    delivered = score_delivery.deliver_pending(beta, "beta", "http://127.0.0.1:9081", "ac" * 32)
+    if delivered != (1, 0):
+        direct = client.post("/internal/race-result", json=json.loads(beta_event.read_text()),
+                             headers={"X-MKWOM-Score-Key": "ac" * 32})
+        pytest.fail(f"Beta event failed: worker={delivered}, API={direct.status_code} {direct.text}")
+
     assert release_event.is_file()
     assert score_delivery.deliver_pending(release, "release", "http://127.0.0.1:9081", "bd" * 32) == (1, 0)
     assert not beta_event.exists() and not release_event.exists()

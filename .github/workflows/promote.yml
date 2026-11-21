@@ -48,7 +48,7 @@ jobs:
           test "$DEPLOY_USER" = "mkwom"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \
-            -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" \\
+            -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" \
             "python3 -" < tools/check_release_readiness.py
   promote:
     if: always() && (inputs.destination == 'beta' || needs.release-preflight.result == 'success')

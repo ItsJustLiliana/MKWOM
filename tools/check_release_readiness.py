@@ -31,7 +31,7 @@ def process_environment(unit: str) -> dict[bytes, bytes]:
         raise RuntimeError(f"{unit} has no running process")
     raw = Path("/proc") / pid_text / "environ"
     # Secret data stays in memory and is never printed or sent to CI logs.
-    return dict(item.split(b"=", 1) for item in raw.read_bytes().split(b"\\x00")
+    return dict(item.split(b"=", 1) for item in raw.read_bytes().split(b"\x00")
                 if b"=" in item)
 
 

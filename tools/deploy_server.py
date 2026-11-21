@@ -91,7 +91,7 @@ def install_score_worker(root: Path, stage: Path) -> None:
 
 
 STAGE_TARGETS = {
-    "beta": (Path("/home/mkwom/projects/MKWOM-server-beta"), "mkw-lobby-beta.service", 19443),
+    "beta": (Path("/home/mkwom/projects/MKWOM-beta"), "mkw-lobby-beta.service", 19443),
     "release": (Path("/home/mkwom/projects/MKWOM-server"), "mkw-lobby.service", 18443),
 }
 
@@ -127,7 +127,10 @@ def main():
     root = a.root.resolve(strict=True)
     if root == Path("/") or root == Path.home():
         p.error("root must be the dedicated server project directory")
-    data, exe = root / "server", root / "build/server/mkw-server"
+    data = root / "server"
+    # The manually initialized Beta service runs the archive binary at root.
+    # Release retains its existing build/server layout, without migration.
+    exe = root / ("mkw-server" if a.stage == "beta" else "build/server/mkw-server")
     if not (data / "pki/ca.der").is_file() or not exe.is_file():
         p.error("initialize/migrate this server and its existing CA before enabling automatic deployment")
     working = subprocess.check_output(["systemctl", "--user", "show", a.unit,
@@ -178,9 +181,22 @@ def main():
             else:
                 print("Server binary unchanged; no restart required.")
             return
-        # A short isolated boot proves executable/libc compatibility before stopping production.
+        # A short isolated boot proves executable/libc compatibility without
+        # stealing either live channel's UDP ports while both are running.
         probe = stage / "probe"
-        run(str(stage / "mkw-server"), "--host", "127.0.0.1", "--port", "28443", "--data", str(probe),
+        temporary_udp = []
+        sockets = []
+        try:
+            for _ in range(5):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("127.0.0.1", 0))
+                sockets.append(sock)
+                temporary_udp.append(sock.getsockname()[1])
+        finally:
+            for sock in sockets:
+                sock.close()
+        run(str(stage / "mkw-server"), "--host", "127.0.0.1", "--port", "28443",
+            "--udp-ports", ",".join(map(str, temporary_udp)), "--data", str(probe),
             "--seconds", "1", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
         backup = root / "backups" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup.mkdir(parents=True, mode=0o700)

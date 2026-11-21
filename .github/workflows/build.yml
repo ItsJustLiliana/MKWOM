@@ -166,31 +166,3 @@ jobs:
           path: dist/queued-strato.json
           retention-days: 90
           if-no-files-found: error
-  cleanup-old-prebeta:
-    name: Remove obsolete public pre-beta releases
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [queue-strato]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-      - name: Remove only legacy internal release entries after private candidate is safely queued
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 tools/cleanup_prebeta_releases.py
-
-  cleanup-legacy-stable-assets:
-    name: Remove redundant downloads from legacy stable v0.1.1
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [queue-strato]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-      - name: Preserve active updater ZIP and install EXE, then delete only legacy duplicates
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: python3 tools/cleanup_public_release_assets.py

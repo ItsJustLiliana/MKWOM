@@ -34,8 +34,8 @@ jobs:
           test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_SSH_KNOWN_HOSTS"
           mkdir -p "$RUNNER_TEMP/mkwom-ssh"
           chmod 700 "$RUNNER_TEMP/mkwom-ssh"
-          printf '%s\\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
-          printf '%s\\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/mkwom-ssh/id_ed25519"
+          printf '%s\n' "$DEPLOY_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/mkwom-ssh/known_hosts"
           chmod 600 "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$RUNNER_TEMP/mkwom-ssh/known_hosts"
       - name: Verify both score channels before creating stable Release
         env:
@@ -46,8 +46,8 @@ jobs:
           set -euo pipefail
           test "$DEPLOY_HOST" = "31.70.192.231"
           test "$DEPLOY_USER" = "mkwom"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \\
-            -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \\
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/mkwom-ssh/known_hosts" \
             -i "$RUNNER_TEMP/mkwom-ssh/id_ed25519" "$DEPLOY_USER@$DEPLOY_HOST" \\
             "python3 -" < tools/check_release_readiness.py
   promote:

@@ -17554,7 +17554,7 @@ new file mode 100644
 index 0000000..fb8f922
 --- /dev/null
 +++ b/runtime/srv/srv_session.c
-@@ -0,0 +1,1134 @@
+@@ -0,0 +1,1161 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Game sessions, rooms, room IDs, ICE and matchmaking (srv_session.h), as the protocol description's sections 6 and 7
 +// say. Ids are short counters never reused in a run (gs-0001, mt-0001, gct-0001), as the reference's are.
@@ -17599,6 +17599,34 @@ index 0000000..fb8f922
 +static int nsessions;
 +static Ticket tickets[TICKETS_MAX];
 +static unsigned next_gs, next_mt, next_gct, next_ice;
++// A rolling deployment runs two native server processes simultaneously.
++// Their previous process-local ids (gs-0001, mt-0001, gct-0001) collided.
++// Scope new identifiers to a validated generation name without changing
++// single-process/local-mode wire format when no generation is configured.
++static const char *generation_suffix(void) {
++    static char cached[10];
++    static int loaded;
++    if (!loaded) {
++        loaded = 1;
++        const char *id = getenv("MKWOM_GENERATION_ID");
++        if (id && *id && strlen(id) <= 8) {
++            size_t n = strlen(id);
++            int valid = 1;
++            for (size_t k = 0; k < n; k++)
++                if (!((id[k] >= 'a' && id[k] <= 'z') || (id[k] >= '0' && id[k] <= '9'))) valid = 0;
++            if (valid) snprintf(cached, sizeof cached, "%s", id);
++        }
++    }
++    return cached;
++}
++
++static void generation_id(char out[24], const char *prefix, unsigned count) {
++    const char *generation = generation_suffix();
++    if (*generation) snprintf(out, 24, "%s-%s-%04u", prefix, generation, count);
++    else snprintf(out, 24, "%s-%04u", prefix, count);
++}
++
+
 +static uint64_t member_seq;
 +
 +// Low-overhead capacity snapshot once a minute. One server hosts many
@@ -17787,7 +17815,7 @@ index 0000000..fb8f922
 +        srv_log("no room for another game session (%d)", nsessions);
 +        return NULL;
 +    }
-+    snprintf(s->id, sizeof s->id, "gs-%04u", ++next_gs);
++    generation_id(s->id, "gs", ++next_gs);
 +    snprintf(s->tenant, sizeof s->tenant, "%s", tenant);
 +    snprintf(s->config, sizeof s->config, "%s", config);
 +    s->room = room;
@@ -17944,7 +17972,7 @@ index 0000000..fb8f922
 +        return;
 +    }
 +    snprintf(s->version, sizeof s->version, "%s", version);
-+    snprintf(s->creation, sizeof s->creation, "gct-%04u", ++next_gct);
++    generation_id(s->creation, "gct", ++next_gct);
 +    member_add(s, uid, &host_attrs, ++s->next_ussid);
 +    session_ready(s);
 +    srv_player_set_version(uid, version);
@@ -18243,7 +18271,7 @@ index 0000000..fb8f922
 +    }
 +    t->used = 1;
 +    t->state = T_SEARCHING;
-+    snprintf(t->id, sizeof t->id, "mt-%04u", ++next_mt);
++    generation_id(t->id, "mt", ++next_mt);
 +    tenant_of(c, t->tenant);
 +    snprintf(t->config, sizeof t->config, "%s", last_seg(config));
 +    snprintf(t->uid, sizeof t->uid, "%s", uid);

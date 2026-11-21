@@ -17626,7 +17626,6 @@ index 0000000..fb8f922
 +    else snprintf(out, 24, "%s-%04u", prefix, count);
 +}
 +
-
 +static uint64_t member_seq;
 +
 +// Low-overhead capacity snapshot once a minute. One server hosts many

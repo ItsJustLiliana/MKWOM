@@ -4,6 +4,74 @@ STRATO must run **two independent live server instances**, Beta and Release, eac
 
 > **Migration block:** The historical live service `mkw-lobby.service` under `/home/mkwom/projects/MKWOM-server` is retained as Release. Beta must be provisioned separately at `/home/mkwom/projects/MKWOM-server-beta` as `mkw-lobby-beta.service` before any new Beta promotion. The workflow now **refuses unsafe promotions** until these distinct services are configured and verified. The currently running service is left untouched. Creating a Beta prerelease artifact does not override this protection. The native server still uses fixed STUN/NAT UDP ports; two independent running servers also need separate UDP/TURN routing before normal multiplayer can use both simultaneously. TCP-port separation alone is not sufficient.
 
+## Native UDP isolation for two simultaneous live services
+
+The server now accepts five strict, distinct UDP listener ports through
+`--udp-ports STUN,TURN,NAT1,NAT2,NAT3`. This option is only available in
+**newly built** server archives; the currently active Release binary is unchanged
+until a deliberate Release promotion.
+
+| Channel | TCP lobby/friends | UDP STUN, TURN, NAT1, NAT2, NAT3 | Service | Data root |
+| --- | --- | --- | --- | --- |
+| Release | 18443 / 18444 | 3478, 3479, 10025, 10125, 33334 | `mkw-lobby.service` | `~/projects/MKWOM-server/server` |
+| Beta | 19443 / 19444 | 13478, 13479, 11025, 11125, 13334 | `mkw-lobby-beta.service` | `~/projects/MKWOM-server-beta/server` |
+
+The new Beta unit must run:
+
+```ini
+[Unit]
+Description=MKWOM Beta Lobby Server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mkwom/projects/MKWOM-server-beta
+ExecStart=/home/mkwom/projects/MKWOM-server-beta/build/server/mkw-server --host 0.0.0.0 --port 19443 --udp-ports 13478,13479,11025,11125,13334 --data /home/mkwom/projects/MKWOM-server-beta/server
+EnvironmentFile=/home/mkwom/.config/mkwom/game-auth.env
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+```
+
+**Do not copy the live Release `server/` directory and start another writer.**
+The Beta server must have a separate initialized data directory, explicit
+per-channel game-ticket validation, an appropriate TLS trust chain and its own
+Beta score-outbox worker. Account IDs and friend identity are centrally managed
+by the account API, but the native file store must not be mounted writable
+from two servers. Verify TLS identity and game client trust before enabling
+the Beta server. In particular, the current game can require separate trust
+configuration for an independently initialized Beta CA.
+
+The native server's `AllocateIceServerSet` response now advertises its
+configured STUN port and uses its configured TURN port as the default.
+An explicitly configured external `turn_port` still takes precedence.
+**The built-in UDP listener is not a functional TURN relay**; an external
+coturn instance is required wherever direct NAT peer connectivity fails.
+Confirm that the game resolves the advertised STUN and TURN hostnames to the
+correct channel's public endpoint and that public firewall rules expose
+the matching UDP ports. Different listener ports alone do not prove race
+stability.
+
+A native CI test starts two Linux server processes simultaneously, using
+separate TCP pairs and five UDP ports each, verifies both STUN endpoints,
+checks independent TLS CA stores, and confirms both processes remain running.
+Invalid configurations and TCP/UDP collisions fail before opening data files.
+This only proves listener isolation, not end-to-end Internet NAT traversal.
+
+Before setting `NETWORK_ISOLATION_VERIFIED=true` in the GitHub **beta**
+environment, independently confirm: both live units use the expected
+ExecStart/WorkingDirectory, both UDP sets bind, TLS works for each channel,
+the required port ranges are allowed by STRATO firewall, and two Windows
+clients complete multiplayer races on Beta while Release stays connected.
+The same verified property is needed for the Release environment. Do not
+override this deployment gate merely to get a green promotion.
+
 ## What happens on a change to main
 
 1. GitHub Actions builds the Windows patcher, multiplayer patch and Linux server, running all automated checks.

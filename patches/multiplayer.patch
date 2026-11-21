@@ -17617,8 +17617,8 @@ index 0000000..fb8f922
 +            lakitu_safe(uid, sizeof uid, s->members[k].uid);
 +            ok = lakitu_append(doc, cap, &n,
 +                "%s{\"id\":\"%s\",\"name\":\"%s\",\"lobby_id\":\"%s\","
-+                "\"channel\":\"%s\",\"state\":\"%s\"}",
-+                first ? "" : ",", uid, uid, id, channel,
++                "\"channel\":\"%s\",\"session_id\":\"%s:%s\",\"state\":\"%s\"}",
++                first ? "" : ",", uid, uid, id, channel, id, uid,
 +                s->members[k].streams ? "connected" : "waiting");
 +            first = 0;
 +        }

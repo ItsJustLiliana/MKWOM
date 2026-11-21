@@ -14698,7 +14698,7 @@ new file mode 100644
 index 0000000..7cc41f7
 --- /dev/null
 +++ b/runtime/srv/srv_gamesync.c
-@@ -0,0 +1,647 @@
+@@ -0,0 +1,690 @@
 +// Integrated from Gael50/mkw-recomp @ ca1567904cfabca413fa0b73ffe030ba69d109b7 (MIT), PR #353.
 +// Gamesync (the protocol description, "Gamesync"): the per-session document store the game's peer-to-peer layer (Pia)
 +// reads the session from. IssueToken / RefreshToken bind a token to (game session, player); GetDocument; WriteDocuments
@@ -15098,6 +15098,48 @@ index 0000000..7cc41f7
 +    srv_log("%s: write %d refused, %s (%zu bytes: %s%s)", s->id, n, why, len, hex, len > k ? "..." : "");
 +}
 +
++// Reject write paths for other players and server-owned referee results.
++// The protobuf oneof contains a document (update/set) or a direct path
++// (transform/delete). Decode the final oneof just as docs_write does.
++static int authorized_write_path(SrvSession *s, const char *uid, const uint8_t *bytes, size_t len) {
++    PbIn in = pb_in(bytes, len);
++    PbField field, op = {0}, name, doc;
++    int kind = 0, st;
++    while ((st = pb_next(&in, &field)) > 0)
++        if (field.num >= 1 && field.num <= 4 && field.wt == PB_LEN)
++            kind = (int)field.num, op = field;
++    if (st < 0 || !kind) return 0;
++    const uint8_t *data = op.data;
++    size_t size = op.len;
++    if (kind <= 2) {
++        if (pb_find(data, size, 1, &doc) != 1 || doc.wt != PB_LEN) return 0;
++        data = doc.data;
++        size = doc.len;
++    }
++    if (pb_find(data, size, 1, &name) != 1 || name.wt != PB_LEN) return 0;
++    char path[DOC_PATH_MAX];
++    if (!docs_path(name.data, name.len, path)) return 0;
++    if (!strncmp(path, "@@RefereeResult/", 16)) return 0;
++    // Only a participant can create their own request/report. Do not trust
++    // the owner written into a caller-controlled document path.
++    const SrvMember *m = srv_member(s, uid);
++    if (!m) return 0;
++    if (!strncmp(path, "@@RefereeRequest/", 17)) {
++        const char *v = path + 17;
++        char owned[48];
++        snprintf(owned, sizeof owned, "%lld/Request/", (long long)m->ussid);
++        return !strncmp(v, owned, strlen(owned));
++    }
++    if (!strncmp(path, "@@RefereeReport/", 16)) {
++        const char *user = strstr(path + 16, "/User/");
++        if (!user) return 0;
++        char owned[32];
++        snprintf(owned, sizeof owned, "%lld", (long long)m->ussid);
++        return !strcmp(user + 6, owned);
++    }
++    return 1;
++}
++
 +// The writes of a WriteRequest (its field 1s) from uid as one batch, then the referee; their results go in res. The
 +// caller sends the changes (srv_gs_changed).
 +static int run_writes(SrvSession *s, const char *uid, const uint8_t *msg, size_t len, PbOut *res) {
@@ -15110,7 +15152,8 @@ index 0000000..7cc41f7
 +    docs_begin(&s->docs);
 +    while (st == ST_OK && (r = pb_next(&in, &f)) > 0)
 +        if (f.num == 1 && f.wt == PB_LEN)
-+            st = ++n > WRITES_MAX ? ST_INVALID_ARGUMENT : docs_write(&s->docs, f.data, f.len, &ctx, res);
++            st = ++n > WRITES_MAX || !authorized_write_path(s, uid, f.data, f.len)
++                 ? ST_INVALID_ARGUMENT : docs_write(&s->docs, f.data, f.len, &ctx, res);
 +    if (st == ST_OK && r < 0) st = ST_INVALID_ARGUMENT;
 +    if (st == ST_INVALID_ARGUMENT) {
 +        if (n > WRITES_MAX) log_refused(s, n, "more writes than WRITES_MAX", msg, 0);

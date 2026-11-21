@@ -146,7 +146,11 @@ def test_beta_and_release_deployments_must_be_independent():
     assert "environment: release" in release
     assert "environment: pre-beta" not in beta + release
     remote = contents("tools/remote_deploy.py")
-    assert "MKWOM-server-beta" in remote
+    assert '"/home/mkwom/projects/MKWOM-beta"' in remote
+    assert '"beta": (Path("/home/mkwom/projects/MKWOM-beta")' in contents("tools/deploy_server.py")
+    workflow = contents(".github/workflows/deploy.yml")
+    assert "inputs.environment == 'beta'" in workflow
+    assert "MKWOM-beta" in workflow
     assert '"/home/mkwom/projects/MKWOM-server"' in remote
     assert "mkw-lobby-beta.service" in remote
     assert "mkw-lobby.service" in remote

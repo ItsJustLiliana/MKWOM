@@ -121,7 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         root.withdraw()
         try:
             outdated = "new patcher is required" in str(error).lower()
-            if outdated:
+            channel = read_json(args.game / ".mkwom" / "settings.json", {}).get("channel", "release")
+            if outdated and channel == "release":
                 import webbrowser
                 if messagebox.askyesno(
                     "MKWOM update available",

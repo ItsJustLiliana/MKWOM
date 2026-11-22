@@ -14,6 +14,7 @@ on:
         default: ''
 permissions:
   contents: write
+  actions: read
 concurrency:
   group: channel-${{ inputs.channel }}
   cancel-in-progress: false

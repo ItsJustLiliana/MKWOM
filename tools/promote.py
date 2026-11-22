@@ -10,6 +10,7 @@ import tempfile
 
 from versioning import LEGACY_BETA, parsed_beta, parsed_stable, next_beta, next_stable, stable_for_beta
 from candidate_store import latest_queued_candidate, download_queued_candidate
+from private_beta_assets import download_beta_bundle
 
 candidate = os.environ.get("CANDIDATE_TAG", "").strip()
 destination = os.environ["DESTINATION"]
@@ -53,10 +54,12 @@ base_assets = [patch, "mkwom-server-linux-x64.tar.gz", "deploy_server.py",
                "build-info.json", "LICENSE", "NOTICE.md", "SHA256SUMS"]
 names = [*base_assets, beta_exe]
 if destination == "release":
-    args = ["gh", "release", "download", candidate, "--dir", "dist"]
-    for name in names:
-        args.extend(["--pattern", name])
-    subprocess.run(args, check=True)
+    # Internal Beta assets stay in the immutable private Actions candidate.
+    download_beta_bundle(candidate, Path("dist"))
+    subprocess.run(["gh", "release", "download", candidate, "--dir", "dist",
+                    "--pattern", beta_exe], check=True)
+    if not (Path("dist") / beta_exe).is_file():
+        raise ValueError("approved Beta installer is missing")
 else:
     missing = [name for name in names if not (Path("dist") / name).is_file()]
     if missing:
@@ -91,7 +94,9 @@ else:
         raise ValueError("Release version must look like v0.1.2")
 # Internal deployment assets remain in Beta, but its sole EXE download has
 # the same versioned naming convention as the stable public Release.
-release_assets = [Path("dist") / n for n in names if n != raw_exe] if destination == "beta" else []
+# Keep all internal server/checksum/patch assets in private Actions artifacts.
+# Public Beta prereleases expose only the versioned Setup executable.
+release_assets = []
 if destination == "beta":
     versioned = Path("dist") / f"MKWOM-{tag}.exe"
     shutil.copyfile(Path("dist") / raw_exe, versioned)

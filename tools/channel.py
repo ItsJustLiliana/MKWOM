@@ -18,18 +18,21 @@ def main():
     p.add_argument("tag")
     p.add_argument("--endpoint")
     p.add_argument("--patch-asset", default="mkwom-patch-windows-x64.zip")
+    p.add_argument("--patch-tag", help="Dedicated Beta channel asset tag (not a numbered prerelease)")
     a = p.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", a.tag):
         p.error("invalid release tag")
     if a.endpoint:
         endpoint(a.endpoint)
+    if a.patch_tag and (a.channel != "beta" or a.patch_tag != "channel-beta"):
+        p.error("Only Beta may use the channel-beta metadata asset tag")
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", a.patch_asset):
         p.error("invalid patch asset name")
     info = json.loads(Path("dist/build-info.json").read_text())
     patch = Path("dist/mkwom-patch-windows-x64.zip")
     result = {"format": 1, "channel": a.channel, "tag": a.tag, "version": info["version"], "installer_version": __version__,
               "installer_build_sha": info["source_sha"],
-              "patch_url": f"https://github.com/ItsJustLiliana/MKWOM/releases/download/{a.tag}/{a.patch_asset}",
+              "patch_url": f"https://github.com/ItsJustLiliana/MKWOM/releases/download/{a.patch_tag or a.tag}/{a.patch_asset}",
               "sha256": hashlib.sha256(patch.read_bytes()).hexdigest(), "endpoint": a.endpoint or None}
     Path("dist/channel.json").write_text(json.dumps(result, indent=2))
 

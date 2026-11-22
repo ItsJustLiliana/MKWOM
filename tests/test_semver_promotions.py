@@ -38,12 +38,13 @@ def test_candidate_version_maps_to_identical_stable_release():
 
 def test_release_does_not_leak_internal_artifacts_to_stable():
     script = (ROOT / "tools/promote.py").read_text()
-    assert 'release_assets = [Path("dist") / n for n in names if n != raw_exe] if destination == "beta" else []' in script
+    assert 'release_assets = []' in script
     assert 'MKWOM-{tag}.exe' in script
     assert 'MKWOM-Patcher-{tag}.exe' not in script
     assert 'beta_exe = f"MKWOM-{candidate}.exe" if destination == "release" else raw_exe' in script
     assert 'release_assets.append(versioned)' in script
     assert 'MKWOM-Patch-{tag}-windows-x64.zip' in script
+    assert 'download_beta_bundle(candidate, Path("dist"))' in script
     assert "release_assets.append(target)" in script
     assert "stable_for_beta(candidate)" in script
     assert "next_beta(existing)" in script

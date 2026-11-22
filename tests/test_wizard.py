@@ -19,6 +19,7 @@ def test_install_updates_and_configures_without_launch(tmp_path):
          patch("mkwom.wizard.update") as update, \
          patch("mkwom.wizard.token", return_value="a" * 64), \
          patch("mkwom.wizard.protect_for_game") as protect, \
+         patch("mkwom.wizard.record_game_account"), \
          patch("mkwom.wizard.persist_online_settings") as persist, \
          patch("mkwom.wizard.install_helper") as helper:
         result = install_and_configure(game, "release", lambda progress, text: phases.append(progress))
@@ -69,6 +70,7 @@ def test_reinstall_same_version_uses_forced_update(tmp_path):
          patch("mkwom.wizard.update") as update, \
          patch("mkwom.wizard.token", return_value="a" * 64), \
          patch("mkwom.wizard.protect_for_game"), \
+         patch("mkwom.wizard.record_game_account"), \
          patch("mkwom.wizard.persist_online_settings"), \
          patch("mkwom.wizard.install_helper"):
         install_and_configure(tmp_path, "beta")

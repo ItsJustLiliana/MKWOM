@@ -487,7 +487,6 @@ class SetupWizard:
                           bg="#252b36", fg=MUTED, relief="flat", padx=12,
                           pady=7).pack(side="left")
         bind_wheel(canvas)
-        bind_wheel(panel)
 
     def _show_add_account(self):
         self.add_account_open = True
@@ -515,17 +514,27 @@ class SetupWizard:
         self.start(task, lambda result: self._signed_in(result))
 
     def _signed_in(self, profile):
-        remove_game_session(Path(self.game.get()))
+        # Choosing a profile must not jump to Review. Continue below is the
+        # only way forward, and validates the selected token again.
+        if (not getattr(self, "active_profile", None) or
+                self.active_profile.get("id") != profile.get("id")):
+            remove_game_session(Path(self.game.get()))
         self.active_profile = profile
-        self.username.set(str(profile.get("username", self.username.get())))
-        self.step = 4
-        self.notice.set("Account verified. Review the settings, then click Install.")
+        self.username.set(str(profile.get("username", "")))
+        self.password.set("")
+        self.add_account_open = False
+        self.step = 3
+        self.notice.set("Account selected. Click Continue to review the installation.")
         self.show_step()
 
     def _verified_saved(self, profile):
         if not profile or not profile.get("id"):
             raise AuthError("Log in or create an account to continue")
-        self._signed_in(profile)
+        self.active_profile = profile
+        self.username.set(str(profile.get("username", "")))
+        self.step = 4
+        self.notice.set("Account verified. Review the settings, then click Install.")
+        self.show_step()
 
     def _continue_active(self):
         self.start(lambda: current_user(self.channel.get()), self._verified_saved)
@@ -539,6 +548,7 @@ class SetupWizard:
             self.active_profile = None
             remove_game_session(Path(self.game.get()))
             self.username.set("")
+        self.add_account_open = False
         self.show_step()
 
     def _log_out_account(self):
@@ -554,6 +564,7 @@ class SetupWizard:
         def complete(_):
             self.active_profile = None
             self.username.set("")
+            self.add_account_open = False
             self.notice.set("Signed out. Your other saved accounts remain available.")
             self.show_step()
         self.start(task, complete)
@@ -580,6 +591,7 @@ class SetupWizard:
         else:
             self.notice.set("Choose or sign in to an MKWOM account.")
         # Always show account controls; a verified session does not skip the step.
+        self.add_account_open = False
         self.step = 3
         self.show_step()
 

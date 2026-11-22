@@ -13,6 +13,7 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
@@ -47,8 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          mkdir -p dist
-          gh release download "$RELEASE_TAG" --pattern mkwom-server-linux-x64.tar.gz --pattern SHA256SUMS --dir dist
+          # Internal server assets live in a verified private Actions candidate
+          # (or a legacy Beta release for pre-migration tags).
+          python3 tools/private_beta_assets.py "$RELEASE_TAG" --dir dist
           cd dist
           grep '  mkwom-server-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict -
           # Use reviewed deployment code from main for older immutable releases.

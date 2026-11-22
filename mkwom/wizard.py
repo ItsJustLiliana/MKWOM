@@ -378,6 +378,128 @@ class SetupWizard:
         future = self.executor.submit(task)
         future.add_done_callback(lambda f: self.events.put(("complete", f, complete)))
 
+    def _render_account_step(self):
+        """Separate current account, saved account list and optional login form."""
+        viewport = tk.Frame(self.body, bg=PANEL)
+        viewport.pack(fill="both", expand=True)
+        canvas = tk.Canvas(viewport, bg=PANEL, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview,
+                                  style="Wizard.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        panel = tk.Frame(canvas, bg=PANEL)
+        window = canvas.create_window((0, 0), anchor="nw", window=panel)
+
+        def resized(_event=None):
+            if not canvas.winfo_exists():
+                return
+            canvas.itemconfigure(window, width=canvas.winfo_width())
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            if panel.winfo_reqheight() > canvas.winfo_height() + 2:
+                if not scrollbar.winfo_manager():
+                    scrollbar.pack(side="right", fill="y")
+            elif scrollbar.winfo_manager():
+                scrollbar.pack_forget()
+                canvas.yview_moveto(0)
+
+        canvas.bind("<Configure>", resized)
+        panel.bind("<Configure>", resized)
+
+        def wheel(event):
+            if not canvas.winfo_exists():
+                return
+            if getattr(event, "num", None) == 4:
+                direction = -1
+            elif getattr(event, "num", None) == 5:
+                direction = 1
+            elif getattr(event, "delta", 0):
+                direction = -1 if event.delta > 0 else 1
+            else:
+                return
+            canvas.yview_scroll(direction, "units")
+            return "break"
+
+        def bind_wheel(widget):
+            for event in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                widget.bind(event, wheel, add="+")
+            for child in widget.winfo_children():
+                bind_wheel(child)
+
+        active = getattr(self, "active_profile", None)
+        active_id = active.get("id") if active else None
+        accounts = known_accounts()
+        self._label(panel, "Current account", 11, MUTED, bold=True).pack(anchor="w", pady=(0, 7))
+        current = tk.Frame(panel, bg="#252e3e", padx=12, pady=10)
+        current.pack(fill="x", pady=(0, 6))
+        if active_id:
+            self._label(current, str(active.get("username") or active_id), 12, TEXT,
+                        bold=True, bg="#252e3e").pack(side="left")
+            self._label(current, "Active", 9, "#4fdaa8",
+                        bg="#252e3e").pack(side="left", padx=(12, 0))
+            tk.Button(panel, text="Log out", command=self._log_out_account,
+                      bg="#303c52", fg=TEXT, relief="flat", padx=12,
+                      pady=6).pack(anchor="w", pady=(4, 12))
+        else:
+            self._label(current, "No account selected", 10, MUTED,
+                        bg="#252e3e").pack(anchor="w")
+
+        if accounts:
+            self._label(panel, "Saved accounts", 11, MUTED, bold=True).pack(anchor="w", pady=(10, 6))
+            for account in accounts:
+                uid = account["id"]
+                is_current = uid == active_id
+                row = tk.Frame(panel, bg="#252b37", padx=10, pady=7)
+                row.pack(fill="x", pady=3)
+                self._label(row, account["username"], 11, TEXT, bg="#252b37",
+                            bold=is_current).pack(side="left", fill="x", expand=True, anchor="w")
+                if is_current:
+                    self._label(row, "Current", 9, "#4fdaa8",
+                                bg="#252b37").pack(side="left", padx=(6, 10))
+                else:
+                    tk.Button(row, text="Use", bg=BLUE, fg="white", relief="flat",
+                              padx=11, pady=4,
+                              command=lambda account_id=uid: self._switch_saved(account_id)).pack(side="left", padx=(6, 4))
+                tk.Button(row, text="Remove", bg="#303746", fg=MUTED, relief="flat",
+                          padx=9, pady=4,
+                          command=lambda account_id=uid: self._forget_saved(account_id)).pack(side="left")
+
+        if accounts and not getattr(self, "add_account_open", False):
+            tk.Button(panel, text="+ Add account", command=self._show_add_account,
+                      bg="#303c52", fg=TEXT, relief="flat",
+                      padx=14, pady=8).pack(anchor="w", pady=(14, 10))
+        else:
+            self._label(panel, "Add account" if accounts else "Sign in to MKWOM",
+                        11, MUTED, bold=True).pack(anchor="w", pady=(12, 8))
+            self._label(panel, "Username", 10, TEXT, bold=True).pack(anchor="w")
+            username = ttk.Entry(panel, textvariable=self.username, style="Wizard.TEntry")
+            username.pack(fill="x", pady=(5, 9))
+            self._label(panel, "Password", 10, TEXT, bold=True).pack(anchor="w")
+            password = ttk.Entry(panel, textvariable=self.password, show="*", style="Wizard.TEntry")
+            password.pack(fill="x", pady=(5, 9))
+            actions = tk.Frame(panel, bg=PANEL)
+            actions.pack(anchor="w", pady=(5, 12))
+            tk.Button(actions, text="Sign in", command=lambda: self.sign_in(False),
+                      bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
+            tk.Button(actions, text="Create account", command=lambda: self.sign_in(True),
+                      bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
+            if accounts:
+                tk.Button(actions, text="Cancel", command=self._hide_add_account,
+                          bg="#252b36", fg=MUTED, relief="flat", padx=12,
+                          pady=7).pack(side="left")
+        bind_wheel(canvas)
+        bind_wheel(panel)
+
+    def _show_add_account(self):
+        self.add_account_open = True
+        self.username.set("")
+        self.password.set("")
+        self.show_step()
+
+    def _hide_add_account(self):
+        self.add_account_open = False
+        self.password.set("")
+        self.show_step()
+
     def sign_in(self, register=False):
         name, password = self.username.get().strip(), self.password.get()
         self.password.set("")

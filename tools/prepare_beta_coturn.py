@@ -50,7 +50,7 @@ def prepare(settings_text: str, public_ip: str, secret: str) -> tuple[str, str]:
         "# Beta-only MKWOM TURN; independent of Release 3479 and relay ports",
         f"listening-ip=0.0.0.0",
         f"listening-port={RELAY_PORT}",
-        f"relay-ip=0.0.0.0",
+        f"relay-ip={public_ip}",
         f"external-ip={public_ip}",
         "realm=mkw-recomp",
         "use-auth-secret",

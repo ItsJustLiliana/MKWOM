@@ -44,7 +44,7 @@ diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
 +}
  
  static void ret_fail(Cpu *c, int e) {
-@@ -580,26 +580,39 @@
+@@ -564,26 +573,39 @@
 
 -static void ov_close(Cpu *c) {
 -    int fd = (int)arg_x(c, 0);

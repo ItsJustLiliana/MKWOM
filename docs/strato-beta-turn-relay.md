@@ -5,18 +5,15 @@ principle is the same: clients use direct UDP where possible and can allocate
 a server-hosted TURN relay when Pia cannot connect directly. Neither project
 proves that TURN alone fixes Lakitu rescue or GameSync state errors.
 
-## What the native patch changes
+## Existing native support
 
-The native server previously yielded only UDP 3479 when `turn_host` was set.
-Beta listens on **13479**, so the internal stub could steal the port coturn
-needs. Now it yields the **configured** `turn_port` to coturn.
-`AllocateIceServerSet` now advertises `stun_port` from Beta settings
-instead of always 3478 (Release). Release keeps the existing 3478 default.
-
-Both changes require a freshly compiled native server, installed via the
-regular pre-beta -> Beta promotion. Merely editing settings on the old native
-binary does not provide the port ownership fix. No Release promotion is
-necessary.
+The existing `isolated-udp.patch` already assigns **13478/13479** for Beta,
+yields the TURN socket (`k == 1`) when `turn_host` is configured, and advertises
+the correct native STUN/TURN ports through `srv_udp_port(0/1)`.
+`multiplayer.patch` is left unchanged to preserve patch compatibility.
+This PR prepares a separate coturn relay that actually serves those advertised
+ports. Confirm the installed Beta native binary includes isolated-udp support
+before enabling coturn. No Release promotion is necessary.
 
 ## STRATO Beta-only ports
 

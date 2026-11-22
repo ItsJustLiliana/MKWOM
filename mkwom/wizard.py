@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .accounts_client import authenticate, current_user, token, logout, AuthError
-from .account_profiles import known_accounts, select_account, forget_account
+from .account_profiles import known_accounts, select_account, forget_account, remember_account
 from .autostart import install_helper
 from .cli import fetch_channel, launch, update
 from . import __version__
@@ -415,6 +415,7 @@ class SetupWizard:
         self.start(task, lambda result: self._signed_in(result))
 
     def _signed_in(self, profile):
+        remove_game_session(Path(self.game.get()))
         self.active_profile = profile
         self.username.set(str(profile.get("username", self.username.get())))
         self.step = 4
@@ -461,6 +462,9 @@ class SetupWizard:
         manifest = fetch_channel(self.channel.get())
         try:
             profile = current_user(self.channel.get())
+            access = token()
+            if profile and profile.get("id") and access:
+                remember_account(profile, access)
         except AuthError:
             profile = None
         return profile, manifest

@@ -145,11 +145,14 @@ def test_continue_requires_complete_fields_and_valid_game(tmp_path):
     wizard.step = 3
     wizard.username.get.return_value = ""
     wizard.password.get.return_value = ""
-    with patch.object(SetupWizard, "_has_saved_login", return_value=False):
-        assert not wizard.can_continue()
-        wizard.username.get.return_value = "driver"
-        wizard.password.get.return_value = "secure-passphrase"
-        assert wizard.can_continue()
+    wizard.active_profile = None
+    assert not wizard.can_continue()
+    wizard.username.get.return_value = "driver"
+    wizard.password.get.return_value = "secure-passphrase"
+    # Password entry alone is not permission to continue: sign in first.
+    assert not wizard.can_continue()
+    wizard.active_profile = {"id": "verified-driver"}
+    assert wizard.can_continue()
     wizard.step = 4
     assert wizard.can_continue()
     wizard.busy = True

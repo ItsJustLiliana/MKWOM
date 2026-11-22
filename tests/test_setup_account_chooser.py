@@ -64,6 +64,10 @@ def test_account_step_renders_list_without_duplicate_continue_or_global_scroll_h
     import inspect
     source = inspect.getsource(SetupWizard._render_account_step)
     assert "Continue as" not in source
+    assert 'self._label(panel, "Current account"' in source
+    assert 'self._label(panel, "Saved accounts"' in source
+    assert 'row.pack(fill="x", pady=3)' in source
+    assert 'if accounts and not getattr(self, "add_account_open", False)' in source
     assert 'text="Use"' in source
     assert 'text="+ Add account"' in source
     assert 'style="Wizard.Vertical.TScrollbar"' in source

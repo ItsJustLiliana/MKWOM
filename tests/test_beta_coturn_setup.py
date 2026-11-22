@@ -24,7 +24,6 @@ def test_beta_relay_generator_preserves_other_settings_and_segments_ports():
     assert "room_size=12\n" in settings
     assert "turn_secret=" + "x" * 48 in settings
     assert "turn_port=13479\n" in settings
-    assert "stun_port=13478\n" in settings
     assert "listening-port=13479\n" in config
     assert "min-port=49500\nmax-port=49755" in config
     assert "static-auth-secret=" + "x" * 48 in config

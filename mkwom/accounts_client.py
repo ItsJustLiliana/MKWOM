@@ -100,8 +100,12 @@ def authenticate(username: str, password: str, register: bool = False,
     access_token = response.get("access_token")
     if not isinstance(access_token, str) or not re.fullmatch(r"[a-f0-9]{64}", access_token):
         raise AuthError("Server did not return a valid session")
+    # Validate identity before changing the active credential.
+    profile = call("/me", token=access_token, channel=channel)
+    from .account_profiles import remember_account
+    remember_account(profile, access_token)
     keyring.set_password(SERVICE, USERNAME_KEY, access_token)
-    return call("/me", token=access_token, channel=channel)
+    return profile
 
 
 def current_user(channel: str = "pre-beta") -> dict | None:

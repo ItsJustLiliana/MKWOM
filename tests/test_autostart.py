@@ -15,6 +15,7 @@ def test_direct_game_start_checks_login_updates_and_launches(tmp_path):
     with patch("mkwom.autostart.current_user", return_value={"id": "123"}), \
          patch("mkwom.autostart.token", return_value="a" * 64), \
          patch("mkwom.autostart.protect_for_game") as bridge, \
+         patch("mkwom.autostart.record_game_account"), \
          patch("mkwom.autostart.update") as update, patch("mkwom.autostart.persist_online_settings"), \
          patch("mkwom.autostart.launch") as launch:
         update_and_launch(game)

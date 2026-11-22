@@ -18,6 +18,7 @@ def test_auto_launch_refreshes_native_dpapi_bridge_after_validating_account(tmp_
         patch("mkwom.autostart.token", return_value="a" * 64),
         patch("mkwom.autostart.update") as update,
         patch("mkwom.autostart.protect_for_game") as bridge,
+            patch("mkwom.autostart.record_game_account"),
         patch("mkwom.autostart.persist_online_settings") as settings_write,
         patch("mkwom.autostart.launch") as launch,
     ):

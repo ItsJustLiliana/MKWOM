@@ -16,7 +16,7 @@ from .accounts_client import AuthError, current_user, token
 from .cli import launch, launch_offline, update
 from .installer import read_json
 from .direct_launch import persist_online_settings
-from .session_storage import protect_for_game
+from .session_storage import protect_for_game, record_game_account
 
 
 def install_helper(game: Path) -> None:
@@ -78,6 +78,7 @@ def update_and_launch(game: Path) -> None:
     if not access:
         raise AuthError("No saved account session. Reopen MKWOM Setup and sign in.")
     protect_for_game(game, access, channel)
+    record_game_account(game, profile["id"])
     persist_online_settings(game)
     launch(game)
 

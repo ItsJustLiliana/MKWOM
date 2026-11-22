@@ -19,6 +19,7 @@ def test_install_updates_and_configures_without_launch(tmp_path):
          patch("mkwom.wizard.update") as update, \
          patch("mkwom.wizard.token", return_value="a" * 64), \
          patch("mkwom.wizard.protect_for_game") as protect, \
+         patch("mkwom.wizard.record_game_account"), \
          patch("mkwom.wizard.persist_online_settings") as persist, \
          patch("mkwom.wizard.install_helper") as helper:
         result = install_and_configure(game, "release", lambda progress, text: phases.append(progress))
@@ -69,6 +70,7 @@ def test_reinstall_same_version_uses_forced_update(tmp_path):
          patch("mkwom.wizard.update") as update, \
          patch("mkwom.wizard.token", return_value="a" * 64), \
          patch("mkwom.wizard.protect_for_game"), \
+         patch("mkwom.wizard.record_game_account"), \
          patch("mkwom.wizard.persist_online_settings"), \
          patch("mkwom.wizard.install_helper"):
         install_and_configure(tmp_path, "beta")
@@ -91,7 +93,7 @@ def test_uninstall_preserves_windows_credentials_and_restores_originals(tmp_path
     assert progress == [15, 85, 100]
 
 
-def test_saved_valid_login_skips_password_screen():
+def test_saved_valid_login_still_shows_account_chooser():
     from unittest.mock import MagicMock
 
     wizard = SetupWizard.__new__(SetupWizard)
@@ -100,7 +102,7 @@ def test_saved_valid_login_skips_password_screen():
     wizard.notice = MagicMock()
     wizard.show_step = MagicMock()
     wizard._account_ready({"id": "42", "username": "driver"})
-    assert wizard.step == 4
+    assert wizard.step == 3
     wizard.username.set.assert_called_once_with("driver")
     wizard.show_step.assert_called_once_with()
 

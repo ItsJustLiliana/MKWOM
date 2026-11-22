@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 
 from patch_native_socket_close import apply as apply_socket_close
+from patch_mkwom_launcher import apply as apply_mkwom_launcher
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,6 +40,7 @@ def prepare(out: Path):
     subprocess.run(["git", "-C", str(out), "apply", "--check", hardening], check=True)
     subprocess.run(["git", "-C", str(out), "apply", hardening], check=True)
     apply_socket_close(out / "runtime/sdk/ov/ov_net.c")
+    apply_mkwom_launcher(out)
 
 
 if __name__ == "__main__":

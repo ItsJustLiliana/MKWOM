@@ -9,7 +9,8 @@ import queue
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .accounts_client import authenticate, current_user, token, AuthError
+from .accounts_client import authenticate, current_user, token, logout, AuthError
+from .account_profiles import known_accounts, select_account, forget_account, remember_account
 from .autostart import install_helper
 from .cli import fetch_channel, launch, update
 from . import __version__
@@ -19,7 +20,7 @@ from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import read_json, uninstall
 from .session_storage import remove_game_session
-from .session_storage import protect_for_game
+from .session_storage import protect_for_game, record_game_account
 
 BLUE = "#3069dc"
 BG = "#101319"
@@ -56,6 +57,7 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     if not access:
         raise AuthError("No secure account session was saved")
     protect_for_game(game, access, channel)
+    record_game_account(game, profile["id"])
     phase(85, "Saving your multiplayer configuration")
     persist_online_settings(game)
     install_helper(game)
@@ -112,6 +114,7 @@ class SetupWizard:
         self.installation = None
         self.completed_action = "install"
         self.channel_manifest = None
+        self.active_profile = None
         self.game = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="release")
         self.username = tk.StringVar()
@@ -143,14 +146,6 @@ class SetupWizard:
         nav = tk.Frame(shell, bg=NAV, width=250, padx=22, pady=30)
         nav.pack(side="left", fill="y")
         nav.pack_propagate(False)
-        logo = tk.Canvas(nav, width=42, height=42, bg=NAV, highlightthickness=0)
-        logo.pack(anchor="w", pady=(0, 12))
-        logo.create_rectangle(3, 3, 39, 39, fill=BLUE, outline="")
-        for row in range(3):
-            for col in range(3):
-                if (row + col) % 2 == 0:
-                    logo.create_rectangle(8 + col * 9, 8 + row * 9, 17 + col * 9, 17 + row * 9,
-                                          fill="#e8f1ff", outline="")
         self._label(nav, "MKWOM", 21, bold=True, bg=NAV).pack(anchor="w")
         self._label(nav, "Mario Kart World: Online Multiplayer", 9, MUTED, bg=NAV).pack(anchor="w", pady=(0, 32))
         self.step_labels = []
@@ -335,12 +330,49 @@ class SetupWizard:
             self._label(self.body, "The installed and available builds appear below after the channel is checked.",
                         9, MUTED, wraplength=520).pack(anchor="w")
         elif self.step == 3:
+            # Scroll saved-account rows independently at Windows DPI scaling.
+            body = self.body
+            canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, borderwidth=0)
+            scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="right", fill="y")
+            canvas.pack(side="left", fill="both", expand=True)
+            panel = tk.Frame(canvas, bg=PANEL)
+            content_window = canvas.create_window((0, 0), anchor="nw", window=panel)
+            panel.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.bind("<Configure>", lambda e: canvas.itemconfigure(content_window, width=e.width))
+            self.body = panel
+            self._label(self.body, "Choose an account", 12, bold=True).pack(anchor="w", pady=(0, 6))
+            if self.active_profile and self.active_profile.get("id"):
+                self._label(self.body, "Signed in: " + str(self.active_profile.get("username", "")),
+                            10, "#4fdaa8").pack(anchor="w", pady=(0, 8))
+                tk.Button(self.body, text="Continue as " + str(self.active_profile.get("username", "account")),
+                          command=self._continue_active, bg=BLUE, fg="white",
+                          relief="flat", padx=12, pady=7).pack(anchor="w")
+                tk.Button(self.body, text="Log out", command=self._log_out_account,
+                          bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(anchor="w", pady=(6, 0))
+            accounts = known_accounts()
+            if accounts:
+                self._label(self.body, "Saved accounts", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 4))
+                for account in accounts:
+                    line = tk.Frame(self.body, bg=PANEL)
+                    line.pack(fill="x", pady=2)
+                    tk.Button(line, text=str(account["username"]), bg="#303c52", fg=TEXT,
+                              relief="flat", padx=12, pady=5,
+                              command=lambda account_id=account["id"]: self._switch_saved(account_id)).pack(side="left")
+                    tk.Button(line, text="Remove", bg="#252b36", fg=MUTED,
+                              relief="flat", padx=8, pady=5,
+                              command=lambda account_id=account["id"]: self._forget_saved(account_id)).pack(side="left", padx=7)
+            self._label(self.body, "Sign in to another account", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 0))
             self._field("Username", self.username)
             self._field("Password", self.password, secret=True)
-            tk.Button(self.body, text="Create a new account", command=lambda: self.sign_in(True),
-                      bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w")
-            self._label(self.body, "Already logged in? Continue verifies your existing session.",
-                        10, MUTED, wraplength=550, justify="left").pack(anchor="w", pady=16)
+            buttons = tk.Frame(self.body, bg=PANEL)
+            buttons.pack(anchor="w", pady=(0, 12))
+            tk.Button(buttons, text="Sign in", command=lambda: self.sign_in(False),
+                      bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
+            tk.Button(buttons, text="Create account", command=lambda: self.sign_in(True),
+                      bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
+            self.body = body
         elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
                                  ("Account", self.username.get() or "Saved account")):
@@ -398,6 +430,8 @@ class SetupWizard:
         self.start(task, lambda result: self._signed_in(result))
 
     def _signed_in(self, profile):
+        remove_game_session(Path(self.game.get()))
+        self.active_profile = profile
         self.username.set(str(profile.get("username", self.username.get())))
         self.step = 4
         self.notice.set("Account verified. Review the settings, then click Install.")
@@ -408,25 +442,60 @@ class SetupWizard:
             raise AuthError("Log in or create an account to continue")
         self._signed_in(profile)
 
+    def _continue_active(self):
+        self.start(lambda: current_user(self.channel.get()), self._verified_saved)
+
+    def _switch_saved(self, account_id):
+        self.start(lambda: select_account(account_id, self.channel.get()), self._signed_in)
+
+    def _forget_saved(self, account_id):
+        forget_account(account_id)
+        if self.active_profile and self.active_profile.get("id") == account_id:
+            self.active_profile = None
+            remove_game_session(Path(self.game.get()))
+            self.username.set("")
+        self.show_step()
+
+    def _log_out_account(self):
+        def task():
+            try:
+                logout(self.channel.get())
+            except AuthError:
+                # Clear the device-side game token even when remote logout
+                # discovers an already expired or revoked session.
+                pass
+            remove_game_session(Path(self.game.get()))
+            return None
+        def complete(_):
+            self.active_profile = None
+            self.username.set("")
+            self.notice.set("Signed out. Your other saved accounts remain available.")
+            self.show_step()
+        self.start(task, complete)
+
     def _channel_and_account(self):
         manifest = fetch_channel(self.channel.get())
         try:
             profile = current_user(self.channel.get())
+            access = token()
+            if profile and profile.get("id") and access:
+                remember_account(profile, access)
         except AuthError:
-            # Invalid/expired session: ask for credentials, never trust just a local token.
             profile = None
         return profile, manifest
 
-    def _account_ready(self, profile):
-        if isinstance(profile, tuple):
-            profile, self.channel_manifest = profile
-        if profile and profile.get("id"):
-            self.username.set(str(profile.get("username", "")))
-            self.step = 4
-            self.notice.set("Existing login verified. No need to sign in again.")
+    def _account_ready(self, result):
+        if isinstance(result, tuple):
+            self.active_profile, self.channel_manifest = result
         else:
-            self.step = 3
-            self.notice.set("Please sign in to your MKWOM account.")
+            self.active_profile = result
+        if self.active_profile and self.active_profile.get("id"):
+            self.username.set(str(self.active_profile.get("username", "")))
+            self.notice.set("Choose Continue, switch accounts, or sign in to another account.")
+        else:
+            self.notice.set("Choose or sign in to an MKWOM account.")
+        # Always show account controls; a verified session does not skip the step.
+        self.step = 3
         self.show_step()
 
     def _start_uninstall(self):
@@ -474,10 +543,13 @@ class SetupWizard:
         elif self.step == 2:
             self.start(self._channel_and_account, self._account_ready)
         elif self.step == 3:
-            if self.username.get().strip() and self.password.get():
+            if self.password.get() and self.username.get().strip():
                 self.sign_in(False)
+            elif self.active_profile:
+                self._continue_active()
             else:
-                self.start(lambda: current_user(self.channel.get()), self._verified_saved)
+                self.notice.set("Choose an account or sign in.")
+                self.show_step()
         elif self.step == 4:
             self.completed_action = "install"
             self.step = 5

@@ -11,7 +11,6 @@ import argparse
 import base64
 import hashlib
 import hmac
-import os
 from pathlib import Path
 import secrets
 import socket

@@ -497,6 +497,8 @@ class SetupWizard:
     def _hide_add_account(self):
         self.add_account_open = False
         self.password.set("")
+        if self.active_profile:
+            self.username.set(str(self.active_profile.get("username", "")))
         self.show_step()
 
     def sign_in(self, register=False):
@@ -530,6 +532,9 @@ class SetupWizard:
     def _verified_saved(self, profile):
         if not profile or not profile.get("id"):
             raise AuthError("Log in or create an account to continue")
+        if (not self.active_profile or
+                profile["id"] != self.active_profile.get("id")):
+            raise AuthError("Selected account changed. Choose an account again.")
         self.active_profile = profile
         self.username.set(str(profile.get("username", "")))
         self.step = 4

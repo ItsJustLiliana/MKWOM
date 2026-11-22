@@ -435,11 +435,19 @@ class SetupWizard:
         forget_account(account_id)
         if self.active_profile and self.active_profile.get("id") == account_id:
             self.active_profile = None
+            remove_game_session(Path(self.game.get()))
+            self.username.set("")
         self.show_step()
 
     def _log_out_account(self):
         def task():
-            logout(self.channel.get())
+            try:
+                logout(self.channel.get())
+            except AuthError:
+                # Clear the device-side game token even when remote logout
+                # discovers an already expired or revoked session.
+                pass
+            remove_game_session(Path(self.game.get()))
             return None
         def complete(_):
             self.active_profile = None

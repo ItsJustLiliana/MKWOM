@@ -6,10 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_native_patch_uses_configured_turn_and_stun_ports():
-    patch = (ROOT / "patches/multiplayer.patch").read_text()
-    assert 'UDP_PORTS[k].port == srv_setting_int("turn_port", 3479, 1, 65535)' in patch
-    assert 'pb_varint(&o, 2, (uint64_t)srv_setting_int("stun_port", 3478, 1, 65535));' in patch
-    assert 'if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", ""))' not in patch
+    patch = (ROOT / "patches/isolated-udp.patch").read_text()
+    assert 'if (k == 1 && *srv_setting("turn_host", "")) continue;' in patch
+    assert 'pb_varint(&o, 2, (uint64_t)srv_udp_port(0));' in patch
+    assert 'srv_setting_int("turn_port", srv_udp_port(1), 1, 65535)' in patch
 
 
 def test_beta_relay_generator_preserves_other_settings_and_segments_ports():

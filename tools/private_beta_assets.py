@@ -12,8 +12,10 @@ import subprocess
 
 try:
     from .candidate_store import download_queued_candidate
+    from .versioning import parsed_beta, LEGACY_BETA
 except ImportError:  # Executed as python tools/private_beta_assets.py
     from candidate_store import download_queued_candidate
+    from versioning import parsed_beta, LEGACY_BETA
 
 INTERNAL = ("mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz",
             "build-info.json", "SHA256SUMS")
@@ -22,7 +24,6 @@ MARKER = re.compile(r"^Promoted from verified pre-beta candidate `(pre-beta-[0-9
 
 
 def beta_origin(tag: str) -> tuple[str | None, bool]:
-    from versioning import parsed_beta, LEGACY_BETA
     if parsed_beta(tag) is None and not LEGACY_BETA.fullmatch(tag):
         raise ValueError("Only an explicitly approved Beta release may supply internal assets")
     payload = json.loads(subprocess.check_output(

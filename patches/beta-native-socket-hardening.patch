@@ -1,7 +1,7 @@
 diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
 --- a/runtime/sdk/ov/ov_net.c
 +++ b/runtime/sdk/ov/ov_net.c
-@@ -480,18 +480,27 @@
+@@ -485,18 +485,27 @@
  // listener ports so it cannot accidentally probe the Release instance.
 -static void redirect(struct sockaddr_in *h) {
 -    const NetServer *s = net_server();

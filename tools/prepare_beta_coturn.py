@@ -41,8 +41,7 @@ def prepare(settings_text: str, public_ip: str, secret: str) -> tuple[str, str]:
     secret = current or secret
     if len(secret) < 32:
         raise ValueError("turn_secret must be >= 32 chars")
-    entries.update(turn_host=public_ip, turn_port=str(RELAY_PORT),
-                   stun_port="13478", turn_secret=secret)
+    entries.update(turn_host=public_ip, turn_port=str(RELAY_PORT), turn_secret=secret)
     # Keep existing account, matchmaking and channel settings.
     settings = "\n".join(f"{key}={value}" for key, value in entries.items()) + "\n"
     lines = [

@@ -32,6 +32,10 @@ def prepare(out: Path):
     isolated = str(ROOT / "patches/isolated-udp.patch")
     subprocess.run(["git", "-C", str(out), "apply", "--check", isolated], check=True)
     subprocess.run(["git", "-C", str(out), "apply", isolated], check=True)
+    # Native UDP close-race fix and Beta-only ICE routing trace.
+    hardening = str(ROOT / "patches/beta-native-socket-hardening.patch")
+    subprocess.run(["git", "-C", str(out), "apply", "--check", hardening], check=True)
+    subprocess.run(["git", "-C", str(out), "apply", hardening], check=True)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from mkwom.gui import ensure_online_login, install_and_play
 
 
 def test_no_session_refuses_play_before_update(tmp_path):
-    with patch("mkwom.gui.persist_online_settings"), patch("mkwom.gui.protect_for_game"), patch("mkwom.gui.install_helper"), \
+    with patch("mkwom.gui.persist_online_settings"), patch("mkwom.gui.protect_for_game"), patch("mkwom.gui.record_game_account"), patch("mkwom.gui.install_helper"), \
          patch("mkwom.gui.token", return_value="a" * 64), patch("mkwom.gui.current_user", return_value=None), \
          patch("mkwom.gui.update") as update, patch("mkwom.gui.launch") as launch:
         with pytest.raises(AuthError, match="Log in"):

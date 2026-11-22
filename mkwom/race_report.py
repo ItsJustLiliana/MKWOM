@@ -32,6 +32,16 @@ PATTERNS = (
      re.compile(r"net-udp:.*\btx resumed after (\d+) ms silence", re.I)),
     ("udp_error", "udp", "error",
      re.compile(r"net-udp:.*(?:nontransient socket error|\b(?:send|recv) error=|bind .*failed)", re.I)),
+    # Native runtime's sequence error viewer is the earliest observed client-side
+    # symptom in the 2026-11-22 two-client failure (before P2PSync leaves).
+    ("game_error_viewer", "game", "error",
+     re.compile(r"\\bseq: enter AppError(?:Viewer|Tower)\\b", re.I)),
+    ("p2p_sync_left", "game", "warning",
+     re.compile(r"\\bseq: leave P2PSync\\b", re.I)),
+    ("gamesync_listen_closed", "gamesync", "warning",
+     re.compile(r"gamesync listen close session=", re.I)),
+    ("udp_socket_closed", "udp", "info",
+     re.compile(r"net-udp: fd=\\d+ closed tx=\\d+ rx=\\d+", re.I)),
     ("gamesync_reconnect", "gamesync", "info", re.compile(r"gamesync reconnect session=", re.I)),
     ("gamesync_grace_expired", "gamesync", "error", re.compile(r"gamesync grace expired session=", re.I)),
     ("gamesync_grace", "gamesync", "warning", re.compile(r"gamesync grace session=", re.I)),
@@ -113,6 +123,12 @@ def assess(events: list[dict]) -> dict:
                                  "Inspect Auth/RefreshToken responses and account token expiry."),
         "turn_unavailable": ("high", "No functional TURN fallback",
                              "Check whether peers require a relay; the built-in UDP listener is not TURN."),
+        "game_error_viewer": ("high", "Game entered its network/game error viewer",
+                               "Capture the guest error code and GameSync/Pia state before the viewer appears; UDP gap counters alone do not prove a healthy session."),
+        "p2p_sync_left": ("medium", "Client exited P2PSync",
+                          "Compare this transition with the first game error and the server stream close."),
+        "gamesync_listen_closed": ("medium", "Server GameSync listening stream closed",
+                                   "Check client and server stream/RPC close reasons; distinguish deliberate departure from lost transport."),
         "gamesync_grace_expired": ("high", "GameSync reconnect window expired",
                                    "Compare transport closure, last packets, and client rejoin attempts."),
         "udp_error": ("medium", "UDP socket error",
@@ -134,7 +150,7 @@ def assess(events: list[dict]) -> dict:
     pairs = []
     seen = set()
     triggers = {"udp_rx_gap", "udp_error", "turn_unavailable", "auth_refresh_failure"}
-    outcomes = {"gamesync_grace", "gamesync_grace_expired", "client_disconnect"}
+    outcomes = {"gamesync_grace", "gamesync_grace_expired", "client_disconnect", "game_error_viewer"}
     for i, (when, event) in enumerate(timed):
         if event["kind"] not in outcomes:
             continue
@@ -157,6 +173,7 @@ def assess(events: list[dict]) -> dict:
                 "This is a heuristic timeline, not a packet capture or proof of causation.",
                 "Client and server timestamps must be on synchronized local clocks for cross-source correlations.",
                 "Missing log events do not prove that a connection was healthy.",
+                "AppErrorViewer and P2PSync leave are symptoms, not proof of why GameSync failed.",
             ]}
 
 

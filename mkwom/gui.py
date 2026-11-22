@@ -30,13 +30,13 @@ def install_and_play(folder: Path, channel: str) -> str:
     ensure_online_login(channel)
     update(folder, channel)
     # Validate again after downloading: revocation or expiry must fail closed.
-    ensure_online_login(channel)
+    profile = ensure_online_login(channel)
     # Store only a Windows-DPAPI-encrypted session in the game folder.
     access_token = token()
     if not access_token:
         raise AuthError("No securely stored account session is available.")
     protect_for_game(folder, access_token, channel)
-    record_game_account(folder, current_user(channel)["id"])
+    record_game_account(folder, profile["id"])
     # Persist networking in recomp itself; subsequent direct mkw.exe starts
     # must not depend on process-only environment variables from this setup.
     persist_online_settings(folder)

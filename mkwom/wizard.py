@@ -115,6 +115,7 @@ class SetupWizard:
         self.completed_action = "install"
         self.channel_manifest = None
         self.active_profile = None
+        self.add_account_open = False
         self.game = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="release")
         self.username = tk.StringVar()
@@ -141,6 +142,10 @@ class SetupWizard:
         style.map("Wizard.TCombobox", fieldbackground=[("readonly", "#242b38")],
                   foreground=[("readonly", TEXT)])
         style.configure("Wizard.Horizontal.TProgressbar", background=BLUE, troughcolor="#2b3240", thickness=12)
+        style.configure("Wizard.Vertical.TScrollbar", background="#364257", troughcolor=PANEL,
+                        bordercolor=PANEL, arrowcolor=MUTED, darkcolor="#364257",
+                        lightcolor="#364257", gripcount=0, width=10)
+        style.map("Wizard.Vertical.TScrollbar", background=[("active", "#50627e"), ("pressed", BLUE)])
         shell = tk.Frame(self.root, bg=BG)
         shell.pack(fill="both", expand=True)
         nav = tk.Frame(shell, bg=NAV, width=250, padx=22, pady=30)
@@ -217,7 +222,7 @@ class SetupWizard:
         if self.step == 2:
             return self.channel.get() in ("beta", "release")
         if self.step == 3:
-            return bool(self.username.get().strip() and self.password.get()) or self._has_saved_login()
+            return bool(getattr(self, "active_profile", None) and self.active_profile.get("id"))
         if self.step == 4:
             value = self.game.get().strip().strip('"')
             return (bool(value) and valid_game_folder(Path(value).expanduser())
@@ -330,49 +335,7 @@ class SetupWizard:
             self._label(self.body, "The installed and available builds appear below after the channel is checked.",
                         9, MUTED, wraplength=520).pack(anchor="w")
         elif self.step == 3:
-            # Scroll saved-account rows independently at Windows DPI scaling.
-            body = self.body
-            canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, borderwidth=0)
-            scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            scrollbar.pack(side="right", fill="y")
-            canvas.pack(side="left", fill="both", expand=True)
-            panel = tk.Frame(canvas, bg=PANEL)
-            content_window = canvas.create_window((0, 0), anchor="nw", window=panel)
-            panel.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-            canvas.bind("<Configure>", lambda e: canvas.itemconfigure(content_window, width=e.width))
-            self.body = panel
-            self._label(self.body, "Choose an account", 12, bold=True).pack(anchor="w", pady=(0, 6))
-            if self.active_profile and self.active_profile.get("id"):
-                self._label(self.body, "Signed in: " + str(self.active_profile.get("username", "")),
-                            10, "#4fdaa8").pack(anchor="w", pady=(0, 8))
-                tk.Button(self.body, text="Continue as " + str(self.active_profile.get("username", "account")),
-                          command=self._continue_active, bg=BLUE, fg="white",
-                          relief="flat", padx=12, pady=7).pack(anchor="w")
-                tk.Button(self.body, text="Log out", command=self._log_out_account,
-                          bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(anchor="w", pady=(6, 0))
-            accounts = known_accounts()
-            if accounts:
-                self._label(self.body, "Saved accounts", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 4))
-                for account in accounts:
-                    line = tk.Frame(self.body, bg=PANEL)
-                    line.pack(fill="x", pady=2)
-                    tk.Button(line, text=str(account["username"]), bg="#303c52", fg=TEXT,
-                              relief="flat", padx=12, pady=5,
-                              command=lambda account_id=account["id"]: self._switch_saved(account_id)).pack(side="left")
-                    tk.Button(line, text="Remove", bg="#252b36", fg=MUTED,
-                              relief="flat", padx=8, pady=5,
-                              command=lambda account_id=account["id"]: self._forget_saved(account_id)).pack(side="left", padx=7)
-            self._label(self.body, "Sign in to another account", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 0))
-            self._field("Username", self.username)
-            self._field("Password", self.password, secret=True)
-            buttons = tk.Frame(self.body, bg=PANEL)
-            buttons.pack(anchor="w", pady=(0, 12))
-            tk.Button(buttons, text="Sign in", command=lambda: self.sign_in(False),
-                      bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
-            tk.Button(buttons, text="Create account", command=lambda: self.sign_in(True),
-                      bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
-            self.body = body
+            self._render_account_step()
         elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
                                  ("Account", self.username.get() or "Saved account")):
@@ -415,6 +378,129 @@ class SetupWizard:
         future = self.executor.submit(task)
         future.add_done_callback(lambda f: self.events.put(("complete", f, complete)))
 
+    def _render_account_step(self):
+        """Separate current account, saved account list and optional login form."""
+        viewport = tk.Frame(self.body, bg=PANEL)
+        viewport.pack(fill="both", expand=True)
+        canvas = tk.Canvas(viewport, bg=PANEL, borderwidth=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview,
+                                  style="Wizard.Vertical.TScrollbar")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        panel = tk.Frame(canvas, bg=PANEL)
+        window = canvas.create_window((0, 0), anchor="nw", window=panel)
+
+        def resized(_event=None):
+            if not canvas.winfo_exists():
+                return
+            canvas.itemconfigure(window, width=canvas.winfo_width())
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            if panel.winfo_reqheight() > canvas.winfo_height() + 2:
+                if not scrollbar.winfo_manager():
+                    scrollbar.pack(side="right", fill="y")
+            elif scrollbar.winfo_manager():
+                scrollbar.pack_forget()
+                canvas.yview_moveto(0)
+
+        canvas.bind("<Configure>", resized)
+        panel.bind("<Configure>", resized)
+
+        def wheel(event):
+            if not canvas.winfo_exists():
+                return
+            if getattr(event, "num", None) == 4:
+                direction = -1
+            elif getattr(event, "num", None) == 5:
+                direction = 1
+            elif getattr(event, "delta", 0):
+                direction = -1 if event.delta > 0 else 1
+            else:
+                return
+            canvas.yview_scroll(direction, "units")
+            return "break"
+
+        def bind_wheel(widget):
+            for event in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                widget.bind(event, wheel, add="+")
+            for child in widget.winfo_children():
+                bind_wheel(child)
+
+        active = getattr(self, "active_profile", None)
+        active_id = active.get("id") if active else None
+        accounts = known_accounts()
+        self._label(panel, "Current account", 11, MUTED, bold=True).pack(anchor="w", pady=(0, 7))
+        current = tk.Frame(panel, bg="#252e3e", padx=12, pady=10)
+        current.pack(fill="x", pady=(0, 6))
+        if active_id:
+            self._label(current, str(active.get("username") or active_id), 12, TEXT,
+                        bold=True, bg="#252e3e").pack(side="left")
+            self._label(current, "Active", 9, "#4fdaa8",
+                        bg="#252e3e").pack(side="left", padx=(12, 0))
+            tk.Button(panel, text="Log out", command=self._log_out_account,
+                      bg="#303c52", fg=TEXT, relief="flat", padx=12,
+                      pady=6).pack(anchor="w", pady=(4, 12))
+        else:
+            self._label(current, "No account selected", 10, MUTED,
+                        bg="#252e3e").pack(anchor="w")
+
+        if accounts:
+            self._label(panel, "Saved accounts", 11, MUTED, bold=True).pack(anchor="w", pady=(10, 6))
+            for account in accounts:
+                uid = account["id"]
+                is_current = uid == active_id
+                row = tk.Frame(panel, bg="#252b37", padx=10, pady=7)
+                row.pack(fill="x", pady=3)
+                self._label(row, account["username"], 11, TEXT, bg="#252b37",
+                            bold=is_current).pack(side="left", fill="x", expand=True, anchor="w")
+                if is_current:
+                    self._label(row, "Current", 9, "#4fdaa8",
+                                bg="#252b37").pack(side="left", padx=(6, 10))
+                else:
+                    tk.Button(row, text="Use", bg=BLUE, fg="white", relief="flat",
+                              padx=11, pady=4,
+                              command=lambda account_id=uid: self._switch_saved(account_id)).pack(side="left", padx=(6, 4))
+                tk.Button(row, text="Remove", bg="#303746", fg=MUTED, relief="flat",
+                          padx=9, pady=4,
+                          command=lambda account_id=uid: self._forget_saved(account_id)).pack(side="left")
+
+        if accounts and not getattr(self, "add_account_open", False):
+            tk.Button(panel, text="+ Add account", command=self._show_add_account,
+                      bg="#303c52", fg=TEXT, relief="flat",
+                      padx=14, pady=8).pack(anchor="w", pady=(14, 10))
+        else:
+            self._label(panel, "Add account" if accounts else "Sign in to MKWOM",
+                        11, MUTED, bold=True).pack(anchor="w", pady=(12, 8))
+            self._label(panel, "Username", 10, TEXT, bold=True).pack(anchor="w")
+            username = ttk.Entry(panel, textvariable=self.username, style="Wizard.TEntry")
+            username.pack(fill="x", pady=(5, 9))
+            self._label(panel, "Password", 10, TEXT, bold=True).pack(anchor="w")
+            password = ttk.Entry(panel, textvariable=self.password, show="*", style="Wizard.TEntry")
+            password.pack(fill="x", pady=(5, 9))
+            actions = tk.Frame(panel, bg=PANEL)
+            actions.pack(anchor="w", pady=(5, 12))
+            tk.Button(actions, text="Sign in", command=lambda: self.sign_in(False),
+                      bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
+            tk.Button(actions, text="Create account", command=lambda: self.sign_in(True),
+                      bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
+            if accounts:
+                tk.Button(actions, text="Cancel", command=self._hide_add_account,
+                          bg="#252b36", fg=MUTED, relief="flat", padx=12,
+                          pady=7).pack(side="left")
+        bind_wheel(canvas)
+
+    def _show_add_account(self):
+        self.add_account_open = True
+        self.username.set("")
+        self.password.set("")
+        self.show_step()
+
+    def _hide_add_account(self):
+        self.add_account_open = False
+        self.password.set("")
+        if self.active_profile:
+            self.username.set(str(self.active_profile.get("username", "")))
+        self.show_step()
+
     def sign_in(self, register=False):
         name, password = self.username.get().strip(), self.password.get()
         self.password.set("")
@@ -430,17 +516,30 @@ class SetupWizard:
         self.start(task, lambda result: self._signed_in(result))
 
     def _signed_in(self, profile):
-        remove_game_session(Path(self.game.get()))
+        # Choosing a profile must not jump to Review. Continue below is the
+        # only way forward, and validates the selected token again.
+        if (not getattr(self, "active_profile", None) or
+                self.active_profile.get("id") != profile.get("id")):
+            remove_game_session(Path(self.game.get()))
         self.active_profile = profile
-        self.username.set(str(profile.get("username", self.username.get())))
-        self.step = 4
-        self.notice.set("Account verified. Review the settings, then click Install.")
+        self.username.set(str(profile.get("username", "")))
+        self.password.set("")
+        self.add_account_open = False
+        self.step = 3
+        self.notice.set("Account selected. Click Continue to review the installation.")
         self.show_step()
 
     def _verified_saved(self, profile):
         if not profile or not profile.get("id"):
             raise AuthError("Log in or create an account to continue")
-        self._signed_in(profile)
+        if (not self.active_profile or
+                profile["id"] != self.active_profile.get("id")):
+            raise AuthError("Selected account changed. Choose an account again.")
+        self.active_profile = profile
+        self.username.set(str(profile.get("username", "")))
+        self.step = 4
+        self.notice.set("Account verified. Review the settings, then click Install.")
+        self.show_step()
 
     def _continue_active(self):
         self.start(lambda: current_user(self.channel.get()), self._verified_saved)
@@ -454,6 +553,7 @@ class SetupWizard:
             self.active_profile = None
             remove_game_session(Path(self.game.get()))
             self.username.set("")
+        self.add_account_open = False
         self.show_step()
 
     def _log_out_account(self):
@@ -469,6 +569,7 @@ class SetupWizard:
         def complete(_):
             self.active_profile = None
             self.username.set("")
+            self.add_account_open = False
             self.notice.set("Signed out. Your other saved accounts remain available.")
             self.show_step()
         self.start(task, complete)
@@ -495,6 +596,7 @@ class SetupWizard:
         else:
             self.notice.set("Choose or sign in to an MKWOM account.")
         # Always show account controls; a verified session does not skip the step.
+        self.add_account_open = False
         self.step = 3
         self.show_step()
 
@@ -543,12 +645,10 @@ class SetupWizard:
         elif self.step == 2:
             self.start(self._channel_and_account, self._account_ready)
         elif self.step == 3:
-            if self.password.get() and self.username.get().strip():
-                self.sign_in(False)
-            elif self.active_profile:
+            if self.active_profile and self.active_profile.get("id"):
                 self._continue_active()
             else:
-                self.notice.set("Choose an account or sign in.")
+                self.notice.set("Select a saved account or sign in first.")
                 self.show_step()
         elif self.step == 4:
             self.completed_action = "install"

@@ -351,7 +351,7 @@ class Launcher:
                                     info.get("patcher_installed_version") or __version__,
                                     info.get("patcher_installed_build") or BUILD_SHA)
         if info["patcher_update"]:
-            return summary + "\nA newer MKWOM Setup EXE is required. Download it from GitHub Releases."
+            return summary + "\nA newer MKWOM launcher (Setup EXE) is required. Download it from GitHub Releases."
         if info["patch_update"]:
             return summary + "\nMultiplayer update available on " + info["channel"] + ". Click Update multiplayer."
         return summary + "\nMKWOM multiplayer is up to date on " + info["channel"] + "."

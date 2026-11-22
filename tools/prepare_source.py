@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import subprocess
 
+from patch_native_socket_close import apply as apply_socket_close
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -32,6 +34,11 @@ def prepare(out: Path):
     isolated = str(ROOT / "patches/isolated-udp.patch")
     subprocess.run(["git", "-C", str(out), "apply", "--check", isolated], check=True)
     subprocess.run(["git", "-C", str(out), "apply", isolated], check=True)
+    # Native UDP close-race fix and Beta-only ICE routing trace.
+    hardening = str(ROOT / "patches/beta-native-socket-hardening.patch")
+    subprocess.run(["git", "-C", str(out), "apply", "--check", hardening], check=True)
+    subprocess.run(["git", "-C", str(out), "apply", hardening], check=True)
+    apply_socket_close(out / "runtime/sdk/ov/ov_net.c")
 
 
 if __name__ == "__main__":

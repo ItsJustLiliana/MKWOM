@@ -21,7 +21,8 @@ def apply(root: Path) -> None:
         '''            const SrvDoc *state = docs_find(&s->docs, "__gs/m");
             const SrvVal *cp = state ? map_get(&state->fields, "cp") : NULL;
             int cp_false = cp && (cp->kind == V_BOOL || cp->kind == V_INT) && !cp->u.i;
-            int ebf = state && truthy(map_get(&state->fields, "ebf"));
+            const SrvVal *backfill = state ? map_get(&state->fields, "ebf") : NULL;
+            int ebf = backfill && (backfill->kind == V_BOOL || backfill->kind == V_INT) && backfill->u.i;
             int64_t bfmax = state ? map_int(&state->fields, "bfmax", 0) : 0;
             int participant_docs = 0;
             for (int j = 0; j < s->docs.n; j++)

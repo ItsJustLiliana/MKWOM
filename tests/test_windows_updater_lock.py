@@ -1,5 +1,5 @@
 """Windows updater installation must not destroy a running helper."""
-from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -26,10 +26,9 @@ def test_retries_transient_windows_sharing_violation(tmp_path):
             raise PermissionError(13, "Access is denied")
         return replace(src, dst)
 
-    with patch("mkwom.autostart.os.name", "nt"), \
+    with patch("mkwom.autostart.os", SimpleNamespace(name="nt", replace=flaky_replace)), \
          patch("mkwom.autostart.sys.frozen", True, create=True), \
          patch("mkwom.autostart.sys.executable", str(exe)), \
-         patch("mkwom.autostart.os.replace", side_effect=flaky_replace), \
          patch("mkwom.autostart.time.sleep") as sleep:
         install_helper(game)
     assert tries == 3
@@ -46,10 +45,9 @@ def test_permanently_locked_updater_survives(tmp_path):
     target = game / ".mkwom" / "updater.exe"
     target.parent.mkdir()
     target.write_bytes(b"old helper")
-    with patch("mkwom.autostart.os.name", "nt"), \
+    with patch("mkwom.autostart.os", SimpleNamespace(name="nt", replace=lambda *_: (_ for _ in ()).throw(PermissionError(13, "Access is denied")))), \
          patch("mkwom.autostart.sys.frozen", True, create=True), \
          patch("mkwom.autostart.sys.executable", str(exe)), \
-         patch("mkwom.autostart.os.replace", side_effect=PermissionError(13, "Access is denied")), \
          patch("mkwom.autostart.time.sleep"):
         with pytest.raises(PermissionError, match="Close Mario Kart World"):
             install_helper(game)

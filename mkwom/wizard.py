@@ -115,6 +115,7 @@ class SetupWizard:
         self.completed_action = "install"
         self.channel_manifest = None
         self.active_profile = None
+        self.add_account_open = False
         self.game = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="release")
         self.username = tk.StringVar()
@@ -141,6 +142,10 @@ class SetupWizard:
         style.map("Wizard.TCombobox", fieldbackground=[("readonly", "#242b38")],
                   foreground=[("readonly", TEXT)])
         style.configure("Wizard.Horizontal.TProgressbar", background=BLUE, troughcolor="#2b3240", thickness=12)
+        style.configure("Wizard.Vertical.TScrollbar", background="#364257", troughcolor=PANEL,
+                        bordercolor=PANEL, arrowcolor=MUTED, darkcolor="#364257",
+                        lightcolor="#364257", gripcount=0, width=10)
+        style.map("Wizard.Vertical.TScrollbar", background=[("active", "#50627e"), ("pressed", BLUE)])
         shell = tk.Frame(self.root, bg=BG)
         shell.pack(fill="both", expand=True)
         nav = tk.Frame(shell, bg=NAV, width=250, padx=22, pady=30)
@@ -217,7 +222,7 @@ class SetupWizard:
         if self.step == 2:
             return self.channel.get() in ("beta", "release")
         if self.step == 3:
-            return bool(self.username.get().strip() and self.password.get()) or self._has_saved_login()
+            return bool(getattr(self, "active_profile", None) and self.active_profile.get("id"))
         if self.step == 4:
             value = self.game.get().strip().strip('"')
             return (bool(value) and valid_game_folder(Path(value).expanduser())
@@ -330,49 +335,7 @@ class SetupWizard:
             self._label(self.body, "The installed and available builds appear below after the channel is checked.",
                         9, MUTED, wraplength=520).pack(anchor="w")
         elif self.step == 3:
-            # Scroll saved-account rows independently at Windows DPI scaling.
-            body = self.body
-            canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, borderwidth=0)
-            scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            scrollbar.pack(side="right", fill="y")
-            canvas.pack(side="left", fill="both", expand=True)
-            panel = tk.Frame(canvas, bg=PANEL)
-            content_window = canvas.create_window((0, 0), anchor="nw", window=panel)
-            panel.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-            canvas.bind("<Configure>", lambda e: canvas.itemconfigure(content_window, width=e.width))
-            self.body = panel
-            self._label(self.body, "Choose an account", 12, bold=True).pack(anchor="w", pady=(0, 6))
-            if self.active_profile and self.active_profile.get("id"):
-                self._label(self.body, "Signed in: " + str(self.active_profile.get("username", "")),
-                            10, "#4fdaa8").pack(anchor="w", pady=(0, 8))
-                tk.Button(self.body, text="Continue as " + str(self.active_profile.get("username", "account")),
-                          command=self._continue_active, bg=BLUE, fg="white",
-                          relief="flat", padx=12, pady=7).pack(anchor="w")
-                tk.Button(self.body, text="Log out", command=self._log_out_account,
-                          bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(anchor="w", pady=(6, 0))
-            accounts = known_accounts()
-            if accounts:
-                self._label(self.body, "Saved accounts", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 4))
-                for account in accounts:
-                    line = tk.Frame(self.body, bg=PANEL)
-                    line.pack(fill="x", pady=2)
-                    tk.Button(line, text=str(account["username"]), bg="#303c52", fg=TEXT,
-                              relief="flat", padx=12, pady=5,
-                              command=lambda account_id=account["id"]: self._switch_saved(account_id)).pack(side="left")
-                    tk.Button(line, text="Remove", bg="#252b36", fg=MUTED,
-                              relief="flat", padx=8, pady=5,
-                              command=lambda account_id=account["id"]: self._forget_saved(account_id)).pack(side="left", padx=7)
-            self._label(self.body, "Sign in to another account", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 0))
-            self._field("Username", self.username)
-            self._field("Password", self.password, secret=True)
-            buttons = tk.Frame(self.body, bg=PANEL)
-            buttons.pack(anchor="w", pady=(0, 12))
-            tk.Button(buttons, text="Sign in", command=lambda: self.sign_in(False),
-                      bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
-            tk.Button(buttons, text="Create account", command=lambda: self.sign_in(True),
-                      bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
-            self.body = body
+            self._render_account_step()
         elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
                                  ("Account", self.username.get() or "Saved account")):
@@ -543,12 +506,10 @@ class SetupWizard:
         elif self.step == 2:
             self.start(self._channel_and_account, self._account_ready)
         elif self.step == 3:
-            if self.password.get() and self.username.get().strip():
-                self.sign_in(False)
-            elif self.active_profile:
+            if self.active_profile and self.active_profile.get("id"):
                 self._continue_active()
             else:
-                self.notice.set("Choose an account or sign in.")
+                self.notice.set("Select a saved account or sign in first.")
                 self.show_step()
         elif self.step == 4:
             self.completed_action = "install"

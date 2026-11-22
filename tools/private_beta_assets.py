@@ -10,7 +10,10 @@ from pathlib import Path
 import re
 import subprocess
 
-from candidate_store import download_queued_candidate
+try:
+    from .candidate_store import download_queued_candidate
+except ImportError:  # Executed as python tools/private_beta_assets.py
+    from candidate_store import download_queued_candidate
 
 INTERNAL = ("mkwom-patch-windows-x64.zip", "mkwom-server-linux-x64.tar.gz",
             "build-info.json", "SHA256SUMS")

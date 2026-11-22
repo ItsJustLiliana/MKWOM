@@ -96,6 +96,9 @@ def update_status(game: Path, channel: str) -> dict:
     upstream_installer = manifest.get("installer_build_sha")
     build_stale = bool(upstream_installer) and upstream_installer != BUILD_SHA
     return {"installed": installed.get("version"), "available": manifest["version"],
+            "patcher_installed_version": __version__, "patcher_installed_build": BUILD_SHA,
+            "patcher_available_version": manifest.get("installer_version"),
+            "patcher_available_build": upstream_installer,
             "patcher_update": manifest.get("installer_version") != __version__ or build_stale,
             "patch_update": installed.get("version") != manifest["version"], "channel": channel}
 

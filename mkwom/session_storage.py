@@ -12,6 +12,7 @@ import re
 from .installer import atom
 
 BLOB_NAME = "account-session.dpapi"
+ACCOUNT_NAME = "active-account-id.txt"
 
 
 class DATA_BLOB(ctypes.Structure):
@@ -20,6 +21,13 @@ class DATA_BLOB(ctypes.Structure):
 
 def session_path(game: Path) -> Path:
     return game / ".mkwom" / BLOB_NAME
+
+
+def record_game_account(game: Path, account_id: str) -> None:
+    """Tell the native launcher which non-secret account owns its friend profile."""
+    if not re.fullmatch(r"[a-f0-9]{32}", account_id):
+        raise ValueError("Invalid verified account identifier")
+    atom(game / ".mkwom" / ACCOUNT_NAME, (account_id + "\\n").encode("ascii"))
 
 
 def protect_for_game(game: Path, access_token: str, channel: str) -> None:
@@ -53,3 +61,4 @@ def protect_for_game(game: Path, access_token: str, channel: str) -> None:
 
 def remove_game_session(game: Path) -> None:
     session_path(game).unlink(missing_ok=True)
+    (game / ".mkwom" / ACCOUNT_NAME).unlink(missing_ok=True)

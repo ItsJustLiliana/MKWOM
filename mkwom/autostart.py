@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import time
+import uuid
 
 from .accounts_client import AuthError, current_user, token
 from .cli import launch, launch_offline, update
@@ -29,10 +31,25 @@ def install_helper(game: Path) -> None:
     if target.is_symlink():
         raise ValueError("Refusing to replace a linked updater executable")
     target.parent.mkdir(parents=True, exist_ok=True)
-    staging = target.with_name("updater.exe.mkwom-new")
+    # A previously launched update helper may still be shutting down, and
+    # Windows refuses replacing an executable while its image is mapped.
+    # Each installer gets its own staging name to avoid concurrent copy races.
+    staging = target.with_name(f"updater.exe.mkwom-new-{uuid.uuid4().hex}")
     try:
         shutil.copyfile(source, staging)
-        os.replace(staging, target)
+        for attempt in range(12):
+            try:
+                os.replace(staging, target)
+                break
+            except PermissionError as exc:
+                if attempt == 11:
+                    raise PermissionError(
+                        "MKWOM updater.exe is in use or protected by Windows. "
+                        "Close Mario Kart World and any MKWOM Setup/updater.exe "
+                        "processes in Task Manager, then retry the setup. "
+                        "The existing updater and game saves were not removed."
+                    ) from exc
+                time.sleep(0.25)
     finally:
         staging.unlink(missing_ok=True)
 

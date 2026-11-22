@@ -1,7 +1,8 @@
 diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
 --- a/runtime/sdk/ov/ov_net.c
 +++ b/runtime/sdk/ov/ov_net.c
-@@ -481,15 +481,24 @@
+@@ -480,18 +480,27 @@
+ // listener ports so it cannot accidentally probe the Release instance.
 -static void redirect(struct sockaddr_in *h) {
 -    const NetServer *s = net_server();
 -    if (!s->on || memcmp(&h->sin_addr, s->ip, 4)) return;
@@ -41,7 +42,10 @@ diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
 +                   port, ntohs(h->sin_port), n);
 +    }
 +}
-@@ -580,24 +580,37 @@
+ 
+ static void ret_fail(Cpu *c, int e) {
+@@ -580,26 +580,39 @@
+
 -static void ov_close(Cpu *c) {
 -    int fd = (int)arg_x(c, 0);
 -    plat_mutex_lock(&fd_lock);
@@ -103,3 +107,5 @@ diff --git a/runtime/sdk/ov/ov_net.c b/runtime/sdk/ov/ov_net.c
 +    if (w != HOST_BAD) host_close(w);
 +    ret_x(c, 0);
 +}
+ 
+ static GFd *sock_of(Cpu *c, int fd) {

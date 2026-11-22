@@ -74,6 +74,7 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     permissions:
       contents: read
+      actions: read
     with:
       tag: ${{ needs.promote.outputs.tag }}
       environment: beta
@@ -85,6 +86,7 @@ jobs:
     with:
       tag: ${{ needs.promote.outputs.tag }}
       channel: beta
+      source_tag: ${{ needs.promote.outputs.tag }}
   cleanup-promoted-beta:
     name: Delete promoted STRATO queue archive (never live server)
     if: always() && inputs.destination == 'beta' && needs.promote.result == 'success' && needs.activate-beta.result == 'success'
@@ -118,6 +120,7 @@ jobs:
     uses: ./.github/workflows/deploy.yml
     permissions:
       contents: read
+      actions: read
     with:
       tag: ${{ needs.promote.outputs.candidate }}
       environment: release

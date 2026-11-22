@@ -16348,7 +16348,7 @@ index 0000000..de6177a
 +        listen_on(hosts[h], port, 0, K_GRPC);
 +        listen_on(hosts[h], port + 1, 0, K_API);
 +        for (size_t k = 0; k < sizeof UDP_PORTS / sizeof *UDP_PORTS; k++) {
-+            if (*srv_setting("turn_host", "") && UDP_PORTS[k].port == srv_setting_int("turn_port", 3479, 1, 65535)) continue; // external coturn owns the selected relay port
++            if (UDP_PORTS[k].port == 3479 && *srv_setting("turn_host", "")) continue; // external coturn owns this port
 +            listen_on(hosts[h], UDP_PORTS[k].port, 1, UDP_PORTS[k].kind);
 +        }
 +    }
@@ -18462,7 +18462,7 @@ index 0000000..fb8f922
 +    else alias_reply(c, s);
 +}
 +
-+// ---- AllocateIceServerSet: STUN and (when configured) an external coturn relay, both
++// ---- AllocateIceServerSet: a STUN server and a relay (nothing answers TURN: races go straight between players), both
 +// under names the runtime sends to this server.
 +static void ice(SrvCall *c, const uint8_t *msg, size_t len) {
 +    (void)msg, (void)len;
@@ -18482,7 +18482,7 @@ index 0000000..fb8f922
 +    pb_str(&o, 1, name);
 +    size_t m = pb_begin(&o, 2);
 +    pb_str(&o, 1, "stun.npln.nintendo.net");
-+    pb_varint(&o, 2, (uint64_t)srv_setting_int("stun_port", 3478, 1, 65535));
++    pb_varint(&o, 2, 3478);
 +    pb_varint(&o, 3, 1);   // UDP
 +    pb_end(&o, m);
 +    m = pb_begin(&o, 3);

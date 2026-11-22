@@ -12,6 +12,9 @@ from tkinter import filedialog, messagebox, ttk
 from .accounts_client import authenticate, current_user, token, AuthError
 from .autostart import install_helper
 from .cli import fetch_channel, launch, update
+from . import __version__
+from .build_identity import BUILD_SHA
+from .version_status import describe_versions, setup_identity
 from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import read_json, uninstall
@@ -108,6 +111,7 @@ class SetupWizard:
         self.action = tk.StringVar(value="reinstall")
         self.installation = None
         self.completed_action = "install"
+        self.channel_manifest = None
         self.game = tk.StringVar(value=str(detect_game() or ""))
         self.channel = tk.StringVar(value="release")
         self.username = tk.StringVar()
@@ -156,6 +160,8 @@ class SetupWizard:
             self.step_labels.append(item)
         tk.Frame(nav, bg=NAV).pack(fill="both", expand=True)
         self._label(nav, "MKW Recomp compatible", 9, MUTED, bg=NAV).pack(anchor="w")
+        self._label(nav, setup_identity(__version__, BUILD_SHA), 9, MUTED, bg=NAV,
+                    justify="left").pack(anchor="w", pady=(6, 0))
 
         right = tk.Frame(shell, bg=BG, padx=38, pady=26)
         right.pack(side="left", fill="both", expand=True)
@@ -180,6 +186,8 @@ class SetupWizard:
         self._label(right, "", 1, bg=BG).pack()
         self.message = self._label(right, "", 9, MUTED, bg=BG, wraplength=630, justify="left")
         self.message.pack(anchor="w")
+        self.version_status = self._label(right, "", 9, MUTED, bg=BG, justify="left", wraplength=630)
+        self.version_status.pack(anchor="w", pady=(6, 0))
 
     def _input(self, variable, secret=False):
         entry = ttk.Entry(self.body, textvariable=variable, style="Wizard.TEntry",
@@ -276,15 +284,15 @@ class SetupWizard:
         self.back.configure(state="disabled" if self.step == 0 or self.busy or self.complete else "normal")
         self.next.configure(state="disabled" if self.busy else "normal")
         self.message.configure(text=self.notice.get())
+        if hasattr(self, "version_status"):
+            self.version_status.configure(text=describe_versions(
+                self.installation, getattr(self, "channel_manifest", None), __version__, BUILD_SHA))
         if self.complete:
             self.heading.configure(text="You're ready to race!")
             self.subtitle.configure(text="Your original game files were restored." if self.completed_action == "uninstall" else "MKWOM was installed and configured successfully.")
             self._label(self.body, "✓  Uninstall complete" if self.completed_action == "uninstall" else "✓  Installation complete", 21, "#4fdaa8", bold=True).pack(anchor="w", pady=20)
             self._label(self.body, ("Original game files restored. Saves and your Windows account are kept." if self.completed_action == "uninstall" else "You can now start Mario Kart World from mkw.exe.\nYour login and server settings are saved securely."),
                         11, MUTED, justify="left").pack(anchor="w")
-            if self.completed_action != "uninstall":
-                tk.Button(self.body, text="Export Race Connection Report", command=self.export_race_report,
-                          bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w", pady=(20, 0))
             self.back.configure(state="disabled")
             if self.completed_action == "uninstall":
                 self.next.configure(text="Close", command=self.close, state="normal", bg=BLUE, fg="white")
@@ -310,15 +318,11 @@ class SetupWizard:
             self._field("Game installation directory", self.game)
             tk.Button(self.body, text="Browse for mkw.exe...", command=self.choose, bg="#303c52",
                       fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w")
-            tk.Button(self.body, text="Export Race Connection Report", command=self.export_race_report,
-                      bg="#303c52", fg=TEXT, relief="flat", padx=14, pady=9).pack(anchor="w", pady=(14, 0))
-            self._label(self.body, "Diagnose race disconnects without reinstalling or changing game files.",
-                        10, MUTED).pack(anchor="w", pady=(7, 10))
             self._label(self.body, "Your game files and saves remain in their original folder.",
                         10, MUTED).pack(anchor="w", pady=18)
         elif self.step == 1:
             self._label(self.body, "MKWOM is already installed.", 12, bold=True).pack(anchor="w", pady=(0, 14))
-            self._label(self.body, "Version: " + str(self.installation.get("version", "unknown")), 10, MUTED).pack(anchor="w")
+            self._label(self.body, "Installed patch: " + str(self.installation.get("version", "unknown")), 10, MUTED).pack(anchor="w")
             for name, detail in (("reinstall", "Reinstall or switch update channel"),
                                  ("uninstall", "Restore original game files; keep saves")):
                 self._choice(self.action, name, name.title(), detail)
@@ -328,6 +332,8 @@ class SetupWizard:
                 self._choice(self.channel, name, name.title(), detail)
             self._label(self.body, "The official server is configured automatically.",
                         10, MUTED).pack(anchor="w", pady=15)
+            self._label(self.body, "The installed and available builds appear below after the channel is checked.",
+                        9, MUTED, wraplength=520).pack(anchor="w")
         elif self.step == 3:
             self._field("Username", self.username)
             self._field("Password", self.password, secret=True)
@@ -340,6 +346,8 @@ class SetupWizard:
                                  ("Account", self.username.get() or "Saved account")):
                 self._label(self.body, label.upper(), 9, MUTED, bold=True).pack(anchor="w", pady=(10, 0))
                 self._label(self.body, value, 12, bold=True, wraplength=540, justify="left").pack(anchor="w")
+            self._label(self.body, describe_versions(self.installation, self.channel_manifest, __version__, BUILD_SHA),
+                        10, MUTED, wraplength=540, justify="left").pack(anchor="w", pady=(14, 0))
             self._label(self.body, "The install creates backups and preserves existing saves.",
                         10, MUTED).pack(anchor="w", pady=18)
         else:
@@ -353,36 +361,6 @@ class SetupWizard:
             self.back.configure(state="disabled")
             self.next.configure(state="disabled")
         self._update_continue_state()
-
-    def export_race_report(self):
-        """Offline diagnostic export; never alters the installed multiplayer patch."""
-        from .race_report import build_report, write_report
-        try:
-            game = Path(self.game.get().strip().strip('"')).expanduser()
-            if not valid_game_folder(game):
-                raise ValueError("Choose the directory containing mkw.exe first.")
-            client_logs = [p for p in (game / "mkw.log", game / "logs" / "mkw.log",
-                                       game / ".mkwom" / "mkw.log") if p.is_file()]
-            if not client_logs:
-                selected = filedialog.askopenfilename(
-                    title="Select the game's mkw.log", filetypes=[("Log files", "*.log"), ("All files", "*.*")])
-                if selected:
-                    client_logs = [Path(selected)]
-            server_logs = []
-            if messagebox.askyesno("Server diagnostics",
-                                   "Do you have an exported STRATO server log to include?\n"
-                                   "Choose No to create a report using only the game log."):
-                selected = filedialog.askopenfilename(
-                    title="Select exported STRATO journal", filetypes=[("Logs", "*.log *.txt"), ("All files", "*.*")])
-                if selected:
-                    server_logs = [Path(selected)]
-            report = build_report(client_logs, server_logs)
-            _json, markdown = write_report(report, game / ".mkwom" / "reports" / "race-connection-report")
-            messagebox.showinfo("Race Connection Report",
-                                f"Report created:\n{markdown}\n\n"
-                                "It contains classified events, not raw logs or account credentials.")
-        except (OSError, ValueError) as exc:
-            messagebox.showerror("Race Connection Report", str(exc))
 
     def choose(self):
         folder = filedialog.askdirectory(title="Select the official Mario Kart World game directory")
@@ -431,14 +409,17 @@ class SetupWizard:
         self._signed_in(profile)
 
     def _channel_and_account(self):
-        fetch_channel(self.channel.get())
+        manifest = fetch_channel(self.channel.get())
         try:
-            return current_user(self.channel.get())
+            profile = current_user(self.channel.get())
         except AuthError:
             # Invalid/expired session: ask for credentials, never trust just a local token.
-            return None
+            profile = None
+        return profile, manifest
 
     def _account_ready(self, profile):
+        if isinstance(profile, tuple):
+            profile, self.channel_manifest = profile
         if profile and profile.get("id"):
             self.username.set(str(profile.get("username", "")))
             self.step = 4
@@ -476,6 +457,7 @@ class SetupWizard:
                 return
             save_folder(game)
             self.installation = installed_patch(game)
+            self.channel_manifest = None
             if self.installation:
                 settings = read_json(game / ".mkwom" / "settings.json", {})
                 previous = settings.get("channel")
@@ -511,6 +493,8 @@ class SetupWizard:
             )
 
     def _installed(self):
+        self.installation = (installed_patch(Path(self.game.get()))
+                             if self.completed_action != "uninstall" else None)
         self.complete = True
         self.notice.set("MKWOM removal finished." if self.completed_action == "uninstall" else "MKWOM installation finished successfully.")
         self.show_step()

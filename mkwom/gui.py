@@ -7,6 +7,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .cli import COMMUNITY_ENDPOINT, channel_endpoint, launch, update, update_status
+from . import __version__
+from .build_identity import BUILD_SHA
+from .version_status import build_id, describe_versions
 from .accounts_client import AuthError, api_base, authenticate, channel_scores, current_user, logout, token
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import json_write, read_json, uninstall
@@ -68,6 +71,7 @@ class Launcher:
         self.channel = tk.StringVar(value="release")
         self.endpoint = tk.StringVar(value=COMMUNITY_ENDPOINT)
         self.status = tk.StringVar(value="Choose your game folder to get started.")
+        self.version_summary = tk.StringVar(value=f"Setup v{__version__}  |  Build {build_id(BUILD_SHA)}")
         self.details = tk.StringVar(value="")
         self.bar = None
         self.username = tk.StringVar()
@@ -189,6 +193,7 @@ class Launcher:
     def refresh(self):
         folder = self.current_folder()
         if not folder:
+            self.version_summary.set(f"Setup v{__version__}  |  Build {build_id(BUILD_SHA)}")
             self.details.set("Select the folder containing the official mkw.exe (v0.1.15).")
             self.primary.configure(text="Select game folder")
             self.uninstall.configure(state="disabled")
@@ -200,6 +205,8 @@ class Launcher:
             self.endpoint.set(channel_endpoint(self.channel.get()))
             self.update_auth_buttons()
             version = installed_version(folder)
+            self.version_summary.set(f"Setup v{__version__}  |  Build {build_id(BUILD_SHA)}  |  "
+                                     f"Patch: {version or 'Not installed'}")
             self.details.set("Patch installed: " + version if version else "Official recomp found. Ready to install.")
             self.primary.configure(text="Play online" if version else "Install & Play online")
             self.uninstall.configure(state="normal" if version else "disabled")
@@ -336,12 +343,18 @@ class Launcher:
 
     @staticmethod
     def describe_updates(info: dict) -> str:
+        current = {"version": info.get("installed")}
+        target = {"version": info.get("available"),
+                  "installer_version": info.get("patcher_available_version"),
+                  "installer_build_sha": info.get("patcher_available_build")}
+        summary = describe_versions(current, target,
+                                    info.get("patcher_installed_version") or __version__,
+                                    info.get("patcher_installed_build") or BUILD_SHA)
         if info["patcher_update"]:
-            return "A newer MKWOM launcher is required. Download it from GitHub Releases."
+            return summary + "\nA newer MKWOM launcher is available; a new Setup EXE is required. Download it from GitHub Releases."
         if info["patch_update"]:
-            return ("Multiplayer update available on " + info["channel"] +
-                    ": " + str(info["available"]) + ". Click Update multiplayer.")
-        return "MKWOM multiplayer is up to date on " + info["channel"] + "."
+            return summary + "\nMultiplayer update available on " + info["channel"] + ". Click Update multiplayer."
+        return summary + "\nMKWOM multiplayer is up to date on " + info["channel"] + "."
 
     def apply_update(self):
         folder = self.current_folder()

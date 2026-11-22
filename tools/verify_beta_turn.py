@@ -112,7 +112,7 @@ def verify(host: str, port: int, secret: str, timeout: float = 2.0) -> None:
         kind, attrs = send_recv(sock, target, packet(ALLOCATE_REQ, txn, transport), txn)
         if kind != ALLOCATE_ERROR or ATTR_REALM not in attrs or ATTR_NONCE not in attrs:
             raise RuntimeError(f"Expected TURN 401 challenge; got message type {kind:#x}")
-        if ATTR_ERROR not in attrs or len(attrs[ATTR_ERROR]) < 4 or attrs[ATTR_ERROR][2:] != b"\x04\x01":
+        if ATTR_ERROR not in attrs or len(attrs[ATTR_ERROR]) < 4 or attrs[ATTR_ERROR][2:4] != b"\x04\x01":
             # Code 401 encoded as class=4, number=1 at bytes 2,3.
             raise RuntimeError("TURN did not return the expected 401 challenge")
         realm, nonce = attrs[ATTR_REALM], attrs[ATTR_NONCE]

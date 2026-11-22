@@ -94,3 +94,28 @@ def test_cli_offline_report_from_game_dir(tmp_path):
 def test_no_input_fails_closed(tmp_path):
     with pytest.raises(ValueError, match="At least one"):
         build_report([], [])
+
+def test_two_client_november_failure_classifies_without_leaking_identity(tmp_path):
+    """Real-world marker shapes: game error preceded P2PSync exit and server grace."""
+    client = sample(tmp_path, "player-a.log", """[host] seq: enter AppErrorTower frame 15239 at 258.8 s
+[host] seq: enter AppErrorViewer frame 15240 at 258.9 s
+[host] seq: leave P2PSync frame 15243 at 258.9 s
+[host] net-udp: fd=7 closed tx=12771 rx=4909 rx_idle_ms=0 tx_idle_ms=0 gaps_rx=0 gaps_tx=0 errors=0
+""")
+    server = sample(tmp_path, "server.log", """Nov 22 14:53:10 ubuntu mkw-server[12]: gamesync listen close session=gs-0001 member=private-user streams=0 listeners=0 targets=11
+Nov 22 14:53:10 ubuntu mkw-server[12]: gamesync grace session=gs-0001 member=private-user 30000 ms for reconnect
+Nov 22 14:53:40 ubuntu mkw-server[12]: gamesync grace expired session=gs-0001 member=private-user: final departure
+""")
+    report = build_report([client], [server], reference_year=2026)
+    assert report["counts"]["game_error_viewer"] == 2
+    assert report["counts"]["p2p_sync_left"] == 1
+    assert report["counts"]["udp_socket_closed"] == 1
+    assert report["counts"]["gamesync_listen_closed"] == 1
+    assert report["counts"]["gamesync_grace_expired"] == 1
+    assert report["analysis"]["status"] == "evidence_found"
+    # Client-relative game seconds have no wall-clock anchor, so never
+    # falsely attribute them to server timestamps.
+    assert all(event["time"] is None for event in report["timeline"] if event["source"] == "client")
+    assert report["analysis"]["correlations"] == []
+    assert "private-user" not in json.dumps(report)
+    assert "gs-0001" not in json.dumps(report)

@@ -1,6 +1,5 @@
 """Beta player downloads are EXE-only; internal files stay in verified CI artifacts."""
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 

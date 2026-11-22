@@ -8,6 +8,7 @@ from patch_native_socket_close import apply as apply_socket_close
 from patch_mkwom_launcher import apply as apply_mkwom_launcher
 from patch_lakitu_identity import apply as apply_lakitu_identity
 from patch_live_join_backfill import apply as apply_live_join_backfill
+from patch_join_admission_trace import apply as apply_join_admission_trace
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -45,6 +46,7 @@ def prepare(out: Path):
     apply_mkwom_launcher(out)
     apply_lakitu_identity(out)
     apply_live_join_backfill(out)
+    apply_join_admission_trace(out)
 
 
 if __name__ == "__main__":

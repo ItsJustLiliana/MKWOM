@@ -27,7 +27,7 @@ def record_game_account(game: Path, account_id: str) -> None:
     """Tell the native launcher which non-secret account owns its friend profile."""
     if not re.fullmatch(r"[a-f0-9]{32}", account_id):
         raise ValueError("Invalid verified account identifier")
-    atom(game / ".mkwom" / ACCOUNT_NAME, (account_id + "\\n").encode("ascii"))
+    atom(game / ".mkwom" / ACCOUNT_NAME, (account_id + "\n").encode("ascii"))
 
 
 def protect_for_game(game: Path, access_token: str, channel: str) -> None:

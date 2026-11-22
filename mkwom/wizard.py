@@ -20,7 +20,7 @@ from .direct_launch import persist_online_settings
 from .discovery import detect_game, save_folder, valid_game_folder
 from .installer import read_json, uninstall
 from .session_storage import remove_game_session
-from .session_storage import protect_for_game
+from .session_storage import protect_for_game, record_game_account
 
 BLUE = "#3069dc"
 BG = "#101319"
@@ -57,6 +57,7 @@ def install_and_configure(game: Path, channel: str, report=None) -> str:
     if not access:
         raise AuthError("No secure account session was saved")
     protect_for_game(game, access, channel)
+    record_game_account(game, profile["id"])
     phase(85, "Saving your multiplayer configuration")
     persist_online_settings(game)
     install_helper(game)

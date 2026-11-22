@@ -35,13 +35,13 @@ PATTERNS = (
     # Native runtime's sequence error viewer is the earliest observed client-side
     # symptom in the 2026-11-22 two-client failure (before P2PSync leaves).
     ("game_error_viewer", "game", "error",
-     re.compile(r"\\bseq: enter AppError(?:Viewer|Tower)\\b", re.I)),
+     re.compile(r"\bseq: enter AppError(?:Viewer|Tower)\b", re.I)),
     ("p2p_sync_left", "game", "warning",
-     re.compile(r"\\bseq: leave P2PSync\\b", re.I)),
+     re.compile(r"\bseq: leave P2PSync\b", re.I)),
     ("gamesync_listen_closed", "gamesync", "warning",
      re.compile(r"gamesync listen close session=", re.I)),
     ("udp_socket_closed", "udp", "info",
-     re.compile(r"net-udp: fd=\\d+ closed tx=\\d+ rx=\\d+", re.I)),
+     re.compile(r"net-udp: fd=\d+ closed tx=\d+ rx=\d+", re.I)),
     ("gamesync_reconnect", "gamesync", "info", re.compile(r"gamesync reconnect session=", re.I)),
     ("gamesync_grace_expired", "gamesync", "error", re.compile(r"gamesync grace expired session=", re.I)),
     ("gamesync_grace", "gamesync", "warning", re.compile(r"gamesync grace session=", re.I)),

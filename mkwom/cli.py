@@ -89,12 +89,25 @@ def fetch_channel(channel: str) -> dict:
     return manifest
 
 
+def patcher_upgrade_needed(manifest: dict, channel: str) -> bool:
+    """A Beta patch with the same installer API version is updater-compatible.
+
+    Each Beta game build has a unique commit SHA; requiring an exact installer
+    SHA would incorrectly demand reinstalling Setup on every Beta release.
+    Stable Release remains pinned to its exact reviewed installer build.
+    """
+    if manifest.get("installer_version") != __version__:
+        return True
+    expected = manifest.get("installer_build_sha")
+    return channel == "release" and bool(expected) and expected != BUILD_SHA
+
+
 def update_status(game: Path, channel: str) -> dict:
     """Check for updates without modifying or launching the game."""
     manifest = fetch_channel(channel)
     installed = read_json(game / ".mkwom/installed.json", {})
     upstream_installer = manifest.get("installer_build_sha")
-    build_stale = bool(upstream_installer) and upstream_installer != BUILD_SHA
+    build_stale = channel == "release" and bool(upstream_installer) and upstream_installer != BUILD_SHA
     return {"installed": installed.get("version"), "available": manifest["version"],
             "patcher_installed_version": __version__, "patcher_installed_build": BUILD_SHA,
             "patcher_available_version": manifest.get("installer_version"),
@@ -106,10 +119,10 @@ def update_status(game: Path, channel: str) -> dict:
 def update(game: Path, channel: str, *, force: bool = False):
     game_closed()
     manifest = fetch_channel(channel)
-    expected_build = manifest.get("installer_build_sha")
-    if (manifest.get("installer_version") != __version__ or
-            (expected_build and expected_build != BUILD_SHA)):
-        raise ValueError("a new patcher is required; download the latest MKWOM Setup EXE from GitHub Releases")
+    if patcher_upgrade_needed(manifest, channel):
+        destination = ("the matching Beta prerelease" if channel == "beta"
+                       else "the latest stable Release")
+        raise ValueError(f"a new patcher is required; download MKWOM Setup from {destination}")
     old = read_json(game / ".mkwom/installed.json", {})
     if old.get("version") == manifest["version"] and not force:
         verify(game, old)

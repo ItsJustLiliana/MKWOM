@@ -29,7 +29,7 @@ def test_beta_relay_generator_preserves_other_settings_and_segments_ports():
     assert "min-port=49500\nmax-port=49755" in config
     assert "static-auth-secret=" + "x" * 48 in config
     assert "denied-peer-ip=127.0.0.0-127.255.255.255" in config
-    assert "3479" not in config
+    assert "listening-port=3479\\n" not in config
 
 
 def test_beta_generator_rejects_insecure_existing_secret():

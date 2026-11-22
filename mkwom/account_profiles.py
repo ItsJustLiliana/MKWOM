@@ -88,7 +88,6 @@ def select_account(account_id: str, channel: str) -> dict:
 
 
 def forget_account(account_id: str) -> None:
-    from .accounts_client import call
     key = _credential_key(account_id)
     saved = keyring.get_password(SERVICE, key)
     if saved:

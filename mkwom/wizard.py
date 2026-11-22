@@ -330,6 +330,18 @@ class SetupWizard:
             self._label(self.body, "The installed and available builds appear below after the channel is checked.",
                         9, MUTED, wraplength=520).pack(anchor="w")
         elif self.step == 3:
+            # Scroll saved-account rows independently at Windows DPI scaling.
+            body = self.body
+            canvas = tk.Canvas(body, bg=PANEL, highlightthickness=0, borderwidth=0)
+            scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            scrollbar.pack(side="right", fill="y")
+            canvas.pack(side="left", fill="both", expand=True)
+            panel = tk.Frame(canvas, bg=PANEL)
+            content_window = canvas.create_window((0, 0), anchor="nw", window=panel)
+            panel.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.bind("<Configure>", lambda e: canvas.itemconfigure(content_window, width=e.width))
+            self.body = panel
             self._label(self.body, "Choose an account", 12, bold=True).pack(anchor="w", pady=(0, 6))
             if self.active_profile and self.active_profile.get("id"):
                 self._label(self.body, "Signed in: " + str(self.active_profile.get("username", "")),
@@ -354,10 +366,13 @@ class SetupWizard:
             self._label(self.body, "Sign in to another account", 10, MUTED, bold=True).pack(anchor="w", pady=(12, 0))
             self._field("Username", self.username)
             self._field("Password", self.password, secret=True)
-            tk.Button(self.body, text="Sign in", command=lambda: self.sign_in(False),
+            buttons = tk.Frame(self.body, bg=PANEL)
+            buttons.pack(anchor="w", pady=(0, 12))
+            tk.Button(buttons, text="Sign in", command=lambda: self.sign_in(False),
                       bg=BLUE, fg="white", relief="flat", padx=12, pady=7).pack(side="left")
-            tk.Button(self.body, text="Create account", command=lambda: self.sign_in(True),
+            tk.Button(buttons, text="Create account", command=lambda: self.sign_in(True),
                       bg="#303c52", fg=TEXT, relief="flat", padx=12, pady=7).pack(side="left", padx=8)
+            self.body = body
         elif self.step == 4:
             for label, value in (("Game folder", self.game.get()), ("Channel", self.channel.get().title()),
                                  ("Account", self.username.get() or "Saved account")):

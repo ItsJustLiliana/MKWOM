@@ -19,9 +19,11 @@ def test_release_is_unchanged_and_ice_logging_is_beta_only():
 
 
 def test_udp_close_snapshot_before_descriptor_is_reused():
-    patch = (ROOT / "patches/beta-native-socket-hardening.patch").read_text()
-    a = patch.index('+            tx = __atomic_load_n(&f->udp_tx_packets')
-    b = patch.index('+        f->kind = FD_FREE;')
-    c = patch.index('+    plat_mutex_unlock(&fd_lock);')
+    from tools.patch_native_socket_close import OLD, NEW
+
+    a = NEW.index('tx = __atomic_load_n(&f->udp_tx_packets')
+    b = NEW.index('f->kind = FD_FREE;')
+    c = NEW.index('plat_mutex_unlock(&fd_lock);')
     assert a < b < c
-    assert 'gaps_rx, gaps_tx, errors);' in patch
+    assert 'gaps_rx, gaps_tx, errors);' in NEW
+    assert 'f->kind = FD_FREE;' in OLD

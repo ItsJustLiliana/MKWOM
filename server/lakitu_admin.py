@@ -57,6 +57,38 @@ def command(*args: str) -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def account_display_names(native: dict, database: Path = ACCOUNT_DB) -> dict:
+    """Show the authenticated MKWOM username instead of an unrelated game nickname.
+
+    Missing/legacy account IDs leave the native player name unchanged. Database
+    access is local read-only; the public lobby and game protocol never see it.
+    """
+    player_rows = list(native.get("players", []))
+    for lobby in native.get("lobbies", []):
+        player_rows.extend(lobby.get("players", []))
+    account_ids = {row.get("account_id") for row in player_rows if isinstance(row, dict)
+                   and isinstance(row.get("account_id"), str)
+                   and _ACCOUNT.fullmatch(row["account_id"])}
+    if not account_ids:
+        return native
+    try:
+        # SQLite URI read-only prevents observer code from creating or editing
+        # the production account DB when the native process is running.
+        location = database.resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(location, uri=True, timeout=1)) as db:
+            ids = sorted(account_ids)
+            names = dict(db.execute(
+                "SELECT id, username FROM users WHERE id IN (" + ",".join("?" for _ in ids) + ")",
+                ids,
+            ).fetchall())
+    except (OSError, sqlite3.Error, ValueError):
+        return native
+    for row in player_rows:
+        if isinstance(row, dict) and row.get("account_id") in names:
+            row["name"] = names[row["account_id"]]
+    return native
+
+
 def snapshot() -> dict:
     # Read-only local systemd inspection. Never derive channel membership from
     # this process-wide aggregate counter.
@@ -115,7 +147,7 @@ def snapshot() -> dict:
                     and isinstance(value.get("players"), list)
                     and isinstance(value.get("limits"), dict)
                     and abs(time.time() - value.get("observed_at", 0)) <= 10):
-                native = value
+                native = account_display_names(value)
     except (OSError, ValueError, TypeError):
         pass
 

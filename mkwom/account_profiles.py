@@ -83,6 +83,9 @@ def select_account(account_id: str, channel: str) -> dict:
     profile = call("/me", token=saved, channel=channel)
     if profile.get("id") != account_id:
         raise AuthError("Saved session belongs to a different account")
+    # Refresh the cached name whenever the user selects an existing account.
+    # Renames are authoritative on the server; the local index is only a cache.
+    remember_account(profile, saved)
     keyring.set_password(SERVICE, ACTIVE, saved)
     return profile
 

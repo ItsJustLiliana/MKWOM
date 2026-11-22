@@ -1,3 +1,4 @@
+from pathlib import Path
 """Regression guards for joining existing public races and friend-visible lobbies.
 
 The native server accepts a new entrant to an in-progress session only when
@@ -31,3 +32,11 @@ def test_friend_join_selects_explicit_lobby_with_channel_and_capacity_checks():
     assert "friend join rejected: lobby not found or wrong tenant/channel" in join_body
     assert "friend join rejected: game lobby is not accepting backfill" in join_body
     assert "friend join rejected: incompatible build/version or lobby full/closed" in join_body
+
+
+def test_live_listener_is_sufficient_when_game_explicitly_enables_backfill():
+    patch = (Path(__file__).resolve().parents[1] / "tools/patch_live_join_backfill.py").read_text()
+    assert "s->listeners > 0" in patch
+    assert 'truthy(map_get(&m->fields, \\"ebf\\"))' in patch
+    # No unconditional admission into an ongoing race.
+    assert "return forming ||" in patch

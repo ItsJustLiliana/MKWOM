@@ -24,6 +24,64 @@ def apply(root: Path) -> None:
         profile = candidates[0]
     replace_once(profile, 'snprintf(out, 18, "SW-%.4s-%.4s-%.4s", code, code + 4, code + 8);',
                  'snprintf(out, 18, "%.4s-%.4s-%.4s", code, code + 4, code + 8);')
+    # A native profile (friend code + secret) must belong to one MKWOM
+    # account, not just the server hostname; otherwise switching users makes
+    # the second account claim a friend code already bound to the first.
+    replace_once(profile, '''static int profile_path(const char *server, const char *ext, char *out, size_t cap) {
+    char dir[1100], key[200];
+    if (!online_dir(dir, sizeof dir)) return 0;
+    profile_key(server, key, sizeof key);
+    snprintf(out, cap, "%s/%s%s", dir, key, ext);
+    return 1;
+}''', '''static int active_mkwom_account(char out[33]) {
+    out[0] = 0;
+    char exe[1024];
+    if (!plat_exe_path(exe, sizeof exe)) return 0;
+    char *slash = strrchr(exe, '/'), *bs = strrchr(exe, '\\\\');
+    if (bs > slash) slash = bs;
+    if (!slash) return 0;
+    *slash = 0;
+    char path[1200];
+    snprintf(path, sizeof path, "%s/.mkwom/active-account-id.txt", exe);
+    uint64_t size = 0;
+    unsigned char *data = plat_file_read(path, &size);
+    if (!data) return 0;
+    int ok = size >= 32 && size <= 34;
+    if (ok) for (int i = 0; i < 32; i++)
+        if (!((data[i] >= '0' && data[i] <= '9') ||
+              (data[i] >= 'a' && data[i] <= 'f'))) ok = 0;
+    if (ok) {
+        memcpy(out, data, 32);
+        out[32] = 0;
+    }
+    free(data);
+    return ok;
+}
+
+static int profile_path(const char *server, const char *ext, char *out, size_t cap) {
+    char dir[1100], key[200], account[33];
+    if (!online_dir(dir, sizeof dir)) return 0;
+    profile_key(server, key, sizeof key);
+    if (active_mkwom_account(account))
+        snprintf(out, cap, "%s/%s_account_%s%s", dir, key, account, ext);
+    else
+        snprintf(out, cap, "%s/%s%s", dir, key, ext);
+    return 1;
+}''')
+    replace_once(profile, '''    if (!server || !*server || !profile_path(server, ".txt", path, sizeof path)) return 0;
+    if (profile_read(path, p)) {''',
+                 '''    if (!server || !*server || !profile_path(server, ".txt", path, sizeof path)) return 0;
+    // One-time ownership migration for a pre-account-scoped profile: move it,
+    // never copy it, so the next account does not inherit the same friend code.
+    char account_id[33];
+    if (active_mkwom_account(account_id) && !plat_file_exists(path) &&
+        online_dir(dir, sizeof dir)) {
+        char legacy[1400], key[200];
+        profile_key(server, key, sizeof key);
+        snprintf(legacy, sizeof legacy, "%s/%s.txt", dir, key);
+        if (plat_file_exists(legacy)) plat_file_replace(legacy, path);
+    }
+    if (profile_read(path, p)) {''')
     # Existing parser already accepts plain, hyphenated and legacy SW-prefixed
     # codes while keeping the wire value as exactly twelve digits.
     launcher_online = root / "runtime/ui/launcher/launcher_online.cpp"
